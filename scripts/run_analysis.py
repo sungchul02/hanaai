@@ -36,7 +36,7 @@ from services.common.models import Customer
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--days", type=int, default=7)
-    parser.add_argument("--customer", default="BLDG-A", help="고객사 코드")
+    parser.add_argument("--customer", default="CHEONAN-CITY", help="고객사 코드")
     parser.add_argument("--dry-run", action="store_true", help="주제만 출력")
     parser.add_argument(
         "--backend",
