@@ -83,6 +83,12 @@ class ProposalRow(BaseModel):
     reviewed_by: str | None
     reviewed_at: dt.datetime | None
     applied_menu_id: int | None
+    # Agent 가 초안을 실제 매처에 넣어본 결과. 관리자가 승인 여부를 판단할 근거다.
+    verified_coverage: float | None
+    verified_matched: int | None
+    verified_total: int | None
+    revisions: int
+    remaining_misses: list[str]
 
 
 class ApproveIn(BaseModel):

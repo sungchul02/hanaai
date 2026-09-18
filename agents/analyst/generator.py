@@ -47,6 +47,8 @@ SYSTEM_PROMPT = """\
   '(확인 후 입력 필요)' 를 넣어 관리자가 채우게 한다. 틀린 안내가 나가는 것이 최악이다.
 - keywords 는 사용자가 쓸 법한 말로 채운다. 질문에 나온 표현을 그대로 쓴다.
 - evidence 는 입력으로 받은 숫자를 그대로 옮긴다. 새로 계산하지 마라.
+- source_labels 에는 이 추천이 나온 주제의 label 을 **글자 그대로** 옮긴다.
+  여러 주제를 하나로 합쳤으면 합친 주제를 전부 적는다. 이 값으로 추천과 질문을 잇는다.
 
 출력:
 JSON 배열만 출력한다. 아래 예시의 키 이름을 글자 그대로 쓴다.
@@ -85,6 +87,7 @@ def _example_json() -> str:
         ),
         reason="최근 7일간 주차 관련 질문이 87건 있었으나 현재 관련 메뉴가 없어 전부 답하지 못했다",
         keywords=["주차", "주차장", "차", "주차요금"],
+        source_labels=["주차장 어디예요?", "차 어디에 대면 돼요?"],
         evidence=ClusterEvidence(
             question_count=87,
             unanswered_count=87,
@@ -109,10 +112,16 @@ def build_system_prompt() -> str:
 
 
 def build_user_prompt(clusters: list[dict[str, Any]], window: str) -> str:
+    # '_' 로 시작하는 키는 내부용이다. 검증에 쓸 질문 원본 같은 것이 여기 들어가는데,
+    # 수백 건을 프롬프트에 실으면 비용만 늘고 판단에는 도움이 안 된다.
+    visible = [
+        {key: value for key, value in cluster.items() if not key.startswith("_")}
+        for cluster in clusters
+    ]
     return (
         f"분석 구간: {window}\n"
-        f"질문 주제 {len(clusters)}건:\n\n"
-        f"{json.dumps(clusters, ensure_ascii=False, indent=2)}\n\n"
+        f"질문 주제 {len(visible)}건:\n\n"
+        f"{json.dumps(visible, ensure_ascii=False, indent=2)}\n\n"
         "위 주제 중 새 안내 메뉴가 필요한 것만 골라 ContentProposal JSON 배열로 만들어라."
     )
 
@@ -174,6 +183,7 @@ class PassthroughGenerator:
                         f"'{label}' 주제로 {count}건이 접수되었고 {unanswered}건이 답하지 못했다"
                     ),
                     keywords=list(cluster.get("keywords") or [label[:10]])[:10] or [label[:10]],
+                    source_labels=[label],
                     evidence=ClusterEvidence(
                         question_count=count,
                         unanswered_count=unanswered,
@@ -283,6 +293,10 @@ class ClaudeCliGenerator:
             raise RuntimeError("CLI 응답에 result 문자열이 없다")
         return result
 
+    def complete(self, user_prompt: str) -> str:
+        """프롬프트 하나를 보내고 원문 응답을 받는다. 콘텐츠 Agent 의 수정 요청이 쓴다."""
+        return self._invoke(user_prompt)
+
     def generate(self, clusters: list[dict[str, Any]], window: str) -> list[ContentProposal]:
         if not clusters:
             return []
@@ -309,9 +323,8 @@ class ClaudeApiGenerator:
         self.last_usage: dict[str, Any] | None = None
         self.last_errors: list[str] = []
 
-    def generate(self, clusters: list[dict[str, Any]], window: str) -> list[ContentProposal]:
-        if not clusters:
-            return []
+    def complete(self, user_prompt: str) -> str:
+        """프롬프트 하나를 보내고 원문 응답을 받는다. 콘텐츠 Agent 의 수정 요청이 쓴다."""
         try:
             import anthropic
         except ImportError as exc:  # pragma: no cover - 설치 여부에 따른 분기
@@ -325,9 +338,8 @@ class ClaudeApiGenerator:
             model=self.model,
             max_tokens=self.max_tokens,
             system=build_system_prompt(),
-            messages=[{"role": "user", "content": build_user_prompt(clusters, window)}],
+            messages=[{"role": "user", "content": user_prompt}],
         )
-        text = "".join(block.text for block in message.content if block.type == "text")
         self.last_usage = {
             "backend": self.name,
             "model": self.model,
@@ -336,6 +348,12 @@ class ClaudeApiGenerator:
                 "output_tokens": message.usage.output_tokens,
             },
         }
+        return "".join(block.text for block in message.content if block.type == "text")
+
+    def generate(self, clusters: list[dict[str, Any]], window: str) -> list[ContentProposal]:
+        if not clusters:
+            return []
+        text = self.complete(build_user_prompt(clusters, window))
         proposals, errors = parse_proposals(text)
         self.last_errors = errors
         return proposals

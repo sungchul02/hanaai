@@ -47,6 +47,7 @@ def _valid(**overrides: Any) -> dict[str, Any]:
         "body": "주차장은 지하 1층에 있습니다. 최초 30분은 무료입니다.",
         "reason": "주차 질문이 87건 있었으나 관련 메뉴가 없다",
         "keywords": ["주차", "주차장"],
+        "source_labels": ["주차장 어디예요?"],
         "evidence": {
             "question_count": 87,
             "unanswered_count": 87,

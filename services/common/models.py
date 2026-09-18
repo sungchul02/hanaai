@@ -241,3 +241,11 @@ class ContentProposal(Base):
     reviewed_at: Mapped[dt.datetime | None] = mapped_column(TZDateTime)
     review_note: Mapped[str | None] = mapped_column(Text)
     applied_menu_id: Mapped[int | None] = mapped_column(ForeignKey("cms_menu.menu_id"))
+
+    # 콘텐츠 작성 Agent 가 초안을 실제 매처에 넣어본 결과.
+    # revisions 가 1 이상이면 Agent 가 검증 후 스스로 고친 것이다.
+    verified_coverage: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
+    verified_matched: Mapped[int | None] = mapped_column(Integer)
+    verified_total: Mapped[int | None] = mapped_column(Integer)
+    revisions: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    remaining_misses: Mapped[list[str]] = mapped_column(TextArray, server_default=text("'{}'"))

@@ -48,6 +48,14 @@ class ContentProposal(BaseModel):
     keywords: list[str] = Field(
         min_length=1, max_length=10, description="이 메뉴를 찾게 할 검색 키워드"
     )
+    source_labels: list[str] = Field(
+        min_length=1,
+        max_length=6,
+        description=(
+            "이 추천이 나온 주제의 label. 입력의 label 을 글자 그대로 옮긴다. "
+            "여러 주제를 하나로 합쳤으면 모두 적는다."
+        ),
+    )
     evidence: ClusterEvidence
     impact_score: float = Field(ge=0, description="질문 수와 미응답 비율로 매긴 우선순위")
     confidence: float = Field(ge=0, le=1)
