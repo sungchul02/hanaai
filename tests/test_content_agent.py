@@ -216,3 +216,17 @@ def test_주제가_없으면_LLM_을_부르지_않는다() -> None:
     base = Empty()
     assert ContentAgent(base).generate([], WINDOW) == []
     assert base.complete_calls == 0
+
+
+def test_정리는_수정이_끝난_뒤에_한다() -> None:
+    """정리를 수정 루프 앞에서 했더니, _revise 가 본문을 다시 쓰면서
+    '(확인 후 입력 필요)' 를 도로 넣었다. 수정 프롬프트가 그렇게 시키기까지 한다.
+    실제로 저장된 초안 14건 중 11건에 옆 메뉴 몫이 남아 있었다."""
+    import inspect
+
+    from agents.analyst.content_agent import ContentAgent
+
+    source = inspect.getsource(ContentAgent.generate)
+    tidy = source.index("_tidy_placeholders")
+    loop = source.index("while not result.ok")
+    assert tidy > loop, "정리가 수정 루프보다 먼저 호출되고 있다"

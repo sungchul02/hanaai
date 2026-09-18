@@ -223,6 +223,7 @@ ruff check . && mypy .
 | 문서 | 읽을 사람 |
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | 구조를 바꾸기 전에. 흐름·데이터·각 결정의 이유 |
+| [docs/review-2026-09-19.md](docs/review-2026-09-19.md) | 첫날 시나리오를 끝까지 돌려본 검토 기록. 남은 오류와 개선 목록 |
 | [CLAUDE.md](CLAUDE.md) | **AI에게 코드를 맡길 때 자동으로 읽힌다.** 지켜야 할 제약이 들어 있다 |
 | 각 모듈 상단 docstring | 그 파일이 왜 그렇게 생겼는지. 특히 `textutil.py`, `placeholder.py`, `supervisor.py` |
 

@@ -223,7 +223,6 @@ class ContentAgent:
             return proposals
 
         by_label = {str(cluster.get("label")): cluster for cluster in clusters}
-        proposals = self._tidy_placeholders(proposals)
 
         verified: list[ContentProposal] = []
         for proposal in proposals:
@@ -271,6 +270,11 @@ class ContentAgent:
                 summary=result.summary(),
             )
             verified.append(proposal)
+
+        # 정리는 **수정이 끝난 뒤에** 한다.
+        # 앞에서 하면 _revise 가 본문을 다시 쓰면서 '(확인 후 입력 필요)' 를 도로 넣는다.
+        # 수정 프롬프트가 그렇게 시키기까지 한다. 실제로 14건 중 11건이 그랬다.
+        verified = self._tidy_placeholders(verified)
 
         # 수정 과정에서 쓴 비용도 합산되도록 마지막 값을 다시 읽는다.
         self.last_usage = getattr(self.base, "last_usage", None)
