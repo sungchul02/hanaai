@@ -112,7 +112,8 @@
   <span class="muted" id="ts">—</span>
   <span id="live" class="live"></span>
   <button onclick="loadAll()">새로고침</button>
-  <button class="primary" id="runbtn" onclick="runAnalysis()">분석 실행</button>
+  <button id="triagebtn" onclick="runTriage()">1단계 · 질문 분류</button>
+  <button class="primary" id="genbtn" onclick="runGeneration()">2단계 · 답변 생성</button>
 </header>
 
 <main>
@@ -125,6 +126,11 @@
   <nav class="tabs" id="tabs"></nav>
 
   <section class="tab" id="tab-todo">
+    <h2>중간 보고 — 무엇에 답할지 정하세요
+      <span class="muted" style="text-transform:none;letter-spacing:0">AI가 분류만 해둔 상태입니다. 고른 것만 답변을 만듭니다</span>
+    </h2>
+    <div class="panel" id="report"></div>
+
     <h2>승인 대기 <span class="muted" style="text-transform:none;letter-spacing:0">AI가 만든 초안. 승인해야 키오스크에 나갑니다</span></h2>
     <div class="panel" id="proposals"></div>
 
@@ -233,7 +239,7 @@ function renderTodo(t) {
     ["중복 메뉴", t.duplicate_menus, "제목이 같은 메뉴. 하나만 남기세요",
       () => "switchTab('todo')"],
     ["미분석 질문", t.unanalyzed, "아직 분석에 들어가지 않은 질문",
-      () => "runAnalysis()"],
+      () => "runTriage()"],
   ];
   renderQuality(t);
   $("todo").innerHTML = items.map(([label, n, sub, action]) => `
@@ -243,6 +249,111 @@ function renderTodo(t) {
       ${n ? `<button onclick="${action()}">보기</button>` : ""}
     </div>`).join("");
   renderTabs(tabCounts);
+}
+
+// ------------------------------------------------------------------ 중간 보고
+//
+// 1단계(분류)와 2단계(생성) 사이의 관문. 여기서 고른 것만 답변을 만든다.
+// 카테고리로 묶어 보여주는 이유: 주제를 하나씩 보면 판단이 안 된다.
+// '시설 이용' 이 여섯 개라는 것을 봐야 우선순위가 잡힌다.
+
+let lastRun = null;
+
+const REVIEW_LABEL = {
+  pending_review: ["정할 차례", "miss"],
+  approved:       ["답변 만들기로 함", "ok"],
+  rejected:       ["제외", ""],
+  answered:       ["답변 생성됨", "ai"],
+};
+
+function renderReport(r) {
+  lastRun = r ? r.analysis_run_id : null;
+  const el = $("report");
+  if (!r || !r.topics.length) {
+    el.innerHTML = `<div class="empty">아직 분류한 결과가 없습니다.
+      상단 [1단계 · 질문 분류]를 눌러 시작하세요.</div>`;
+    return;
+  }
+  // 카테고리별로 묶는다
+  const groups = {};
+  for (const t of r.topics) (groups[t.category] ||= []).push(t);
+
+  const waiting = r.topics.filter(t => t.review_status === "pending_review").length;
+  const picked = r.topics.filter(t => t.review_status === "approved").length;
+
+  el.innerHTML = `
+    <div class="prop">
+      <div class="t">분석 #${r.analysis_run_id} · 질문 ${r.questions_seen}건 → 주제 ${r.clusters_found}개</div>
+      <div class="muted" style="margin-top:3px">
+        AI가 안내 가치를 판단하고 갈래를 나눴습니다.
+        정할 차례 ${waiting}개 · 답변 만들기로 한 것 ${picked}개
+      </div>
+      <div class="actions">
+        <button onclick="reviewAll('approved')">전부 선택</button>
+        <button onclick="reviewAll('rejected')">전부 제외</button>
+        <span class="muted">고른 뒤 상단 [2단계 · 답변 생성]을 누르세요</span>
+      </div>
+    </div>` +
+    Object.entries(groups).map(([category, rows]) => `
+      <div class="prop">
+        <div class="t">${esc(category)}
+          <span class="muted" style="font-weight:400">주제 ${rows.length}개 ·
+            질문 ${rows.reduce((a, t) => a + t.size, 0)}건</span>
+          <button style="margin-left:8px"
+            onclick='reviewMany(${JSON.stringify(rows.map(t => t.cluster_id))}, "approved")'>
+            이 갈래 전부 선택</button>
+        </div>
+        <table style="margin-top:8px"><tbody>
+        ${rows.map(t => reportRow(t)).join("")}
+        </tbody></table>
+      </div>`).join("");
+}
+
+function reportRow(t) {
+  const [label, cls] = REVIEW_LABEL[t.review_status] || [t.review_status, ""];
+  // 2단계를 돌린 뒤 근거를 못 찾은 주제. 문서를 채워야 풀린다.
+  const gap = t.evidence_found === false
+    ? `<div class="muted" style="margin-top:3px">근거 문서 없음: ${
+        (t.evidence_missing || []).map(esc).join(" / ")}</div>` : "";
+  const buttons = t.review_status === "answered" ? "" : `
+    <button onclick='reviewMany([${t.cluster_id}], "approved")'>선택</button>
+    <button onclick='reviewMany([${t.cluster_id}], "rejected")'>제외</button>`;
+  return `<tr>
+    <td style="width:45%">${esc(t.label)}
+      <div class="muted" style="margin-top:3px">${esc(t.triage_reason)}</div>${gap}</td>
+    <td class="num">${t.size}건</td>
+    <td><span class="tag ${cls}">${esc(label)}</span></td>
+    <td style="text-align:right;white-space:nowrap">${buttons}</td>
+  </tr>`;
+}
+
+async function reviewMany(clusterIds, action) {
+  if (!lastRun) return;
+  try {
+    await api(`/v1/analysis/${lastRun}/review`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reviewer: reviewerName(), cluster_ids: clusterIds, action })
+    });
+    await loadAll();
+  } catch (e) { showError(e.message); }
+}
+
+async function reviewAll(action) {
+  const r = await api(`/v1/analysis/${lastRun}/report`);
+  const ids = r.topics.filter(t => t.review_status !== "answered").map(t => t.cluster_id);
+  if (ids.length) await reviewMany(ids, action);
+}
+
+// 검토자 이름을 매번 묻지 않는다. 한 번 물어보고 기억한다.
+function reviewerName() {
+  let who = null;
+  try { who = localStorage.getItem("reviewer"); } catch (e) { /* 사생활 보호 모드 */ }
+  if (!who) {
+    who = prompt("검토자 이름", "robin");
+    if (!who) return "unknown";
+    try { localStorage.setItem("reviewer", who); } catch (e) { /* 저장 못해도 진행 */ }
+  }
+  return who;
 }
 
 // AI 초안을 그대로 썼는가, 손봤는가. 이 비율이 초안 품질 지표다.
@@ -709,54 +820,66 @@ async function loadQuestions() {
   renderQuestions(await api(`/v1/questions?customer_id=${cid()}&only_unanswered=${miss}&limit=40`));
 }
 
-// 추천이 0건이면 "아무 일도 안 일어났다" 로 보인다. 이유를 반드시 설명한다.
-function explainRun(out) {
-  const st = out.stats || {};
-  const lines = [
-    `분석 완료 (${out.backend})`,
-    ``,
-    `질문 ${out.questions_seen}건 → 주제 ${out.clusters_found}개`,
-    `새 추천 ${out.proposals_made}건`,
-    ``,
-  ];
-  lines.push(`[규칙] 걸러낸 주제`);
-  if (st.skipped_covered) lines.push(`  · ${st.skipped_covered}개 — 기존 메뉴가 이미 답하고 있음`);
-  if (st.skipped_small) lines.push(`  · ${st.skipped_small}개 — 질문이 ${st.min_cluster_size}건 미만 (우연일 수 있음)`);
-
-  lines.push(``, `[LLM] 상위 Agent 가 ${st.triage_candidates ?? 0}개 주제를 판단`);
-  lines.push(`  · ${st.triage_kept ?? 0}개 통과 · ${st.triage_dropped ?? 0}개 제외 (안내 가치 없음)`);
-
-  lines.push(``, `[LLM] 하위 Agent 가 근거 문서를 조사`);
-  lines.push(`  · ${st.evidence_found ?? 0}개 주제는 근거 확보`);
-  if (st.evidence_missing) {
-    lines.push(`  · ${st.evidence_missing}개 주제는 근거 문서가 없어 초안을 만들지 않음`,
-      `    (지어내지 않습니다. [할 일] 탭의 '문서 보강 필요' 를 확인하세요)`);
-  }
-  if (st.blocked_duplicate) {
-    lines.push(``, `· ${st.blocked_duplicate}건은 이미 검토했거나 반영한 주제라 다시 제안하지 않음`);
-  }
-  if (!out.proposals_made) {
-    lines.push(``, `추천할 새 주제가 없습니다.`,
-      `[CMS 메뉴] 탭에서 직접 만들거나, 기존 메뉴의 키워드를 고칠 수 있습니다.`);
-  } else {
-    lines.push(``, `[할 일] 탭의 '승인 대기' 에서 검토하세요.`);
-  }
-  return lines.join("\n");
-}
-
-async function runAnalysis() {
-  $("runbtn").disabled = true;
-  $("runbtn").textContent = "분석 중...";
+// 1단계 — 싸다. 묶고 판단하고 갈래를 나눌 뿐 답변은 안 만든다.
+async function runTriage() {
+  const btn = $("triagebtn");
+  btn.disabled = true;
+  btn.textContent = "분류 중...";
   try {
-    const out = await api("/v1/analysis/run", {
+    const out = await api("/v1/analysis/triage", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ customer_id: Number(cid()), days: 7 })
     });
+    showError(out.error || "");
+    current = "todo";
+    await loadAll();
+    alert(
+      `1단계 완료 (${out.backend})\n\n` +
+      `질문 ${out.questions_seen}건 → 주제 ${out.clusters_found}개\n` +
+      `  · ${out.stats.skipped_covered || 0}개는 기존 메뉴가 이미 답하고 있어 제외\n` +
+      `  · ${out.stats.skipped_small || 0}개는 질문이 ${out.stats.min_cluster_size}건 미만이라 제외\n\n` +
+      `AI가 판단한 주제 ${out.stats.triage_candidates || 0}개\n` +
+      `  · ${out.kept}개 통과 · ${out.dropped}개 제외 (안내 가치 없음)\n\n` +
+      `[중간 보고]에서 무엇에 답할지 고른 뒤 [2단계]를 누르세요.`
+    );
+  } catch (e) { showError(e.message); }
+  finally { btn.disabled = false; btn.textContent = "1단계 · 질문 분류"; }
+}
+
+// 2단계 — 비싸다. 승인된 주제만 근거를 찾고 답변을 만든다.
+async function runGeneration() {
+  if (!lastRun) {
+    showError("먼저 [1단계 · 질문 분류]를 실행하세요.");
+    return;
+  }
+  const btn = $("genbtn");
+  btn.disabled = true;
+  btn.textContent = "생성 중...";
+  try {
+    const out = await api(`/v1/analysis/${lastRun}/generate`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
+    });
     showError(out.error ? "일부 응답이 검증을 통과하지 못했습니다: " + out.error : "");
     await loadAll();
-    alert(explainRun(out));
+    const lines = [
+      `2단계 완료 (${out.backend})`, ``,
+      `승인한 주제 ${out.approved_topics}개`,
+      `  · 근거 확보 ${out.evidence_found}개`,
+    ];
+    if (out.evidence_missing) {
+      lines.push(`  · 근거 문서가 없어 만들지 않음 ${out.evidence_missing}개`,
+                 `    (지어내지 않습니다. 중간 보고에서 무엇이 필요한지 확인하세요)`);
+    }
+    lines.push(``, `답변 초안 ${out.proposals_made}건 생성`);
+    if (out.stats.blocked_duplicate) {
+      lines.push(`  · ${out.stats.blocked_duplicate}건은 이미 검토했거나 반영한 주제라 제외`);
+    }
+    lines.push(``, out.proposals_made
+      ? `아래 '승인 대기'에서 검토하세요.`
+      : `[CMS 메뉴] 탭에서 직접 만들 수 있습니다.`);
+    alert(lines.join("\n"));
   } catch (e) { showError(e.message); }
-  finally { $("runbtn").disabled = false; $("runbtn").textContent = "분석 실행"; }
+  finally { btn.disabled = false; btn.textContent = "2단계 · 답변 생성"; }
 }
 
 // 할 일 숫자는 어느 탭에 있든 맨 위에 떠야 하므로 항상 부른다.
@@ -780,11 +903,17 @@ async function loadTab(summary) {
   if (!cid()) return;
   try {
     if (current === "todo") {
-      const [proposals, topics, dups] = await Promise.all([
+      const [proposals, topics, dups, runs] = await Promise.all([
         api(`/v1/proposals?customer_id=${cid()}&status=pending_review`),
         api(`/v1/topics?customer_id=${cid()}`),
         api(`/v1/menus/duplicates?customer_id=${cid()}`),
+        api(`/v1/analysis/runs?customer_id=${cid()}&limit=1`),
       ]);
+      // 가장 최근 분석의 중간 보고를 띄운다. 1단계만 돌린 상태든 2단계까지 갔든
+      // 같은 화면에서 이어서 볼 수 있어야 한다.
+      renderReport(runs.length
+        ? await api(`/v1/analysis/${runs[0].analysis_run_id}/report`)
+        : null);
       renderProposals(proposals);
       renderGaps(topics);
       renderDuplicates(dups);

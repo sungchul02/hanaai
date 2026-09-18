@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sqlalchemy import select
 
 from agents.analyst.cluster import QuestionItem, build_clusters, find_covering_menu
+from agents.analyst.generation import run_analysis
 from agents.analyst.generator import get_generator
 from agents.analyst.runner import (
     COVERAGE_THRESHOLD,
@@ -26,7 +27,6 @@ from agents.analyst.runner import (
     _load_menus,
     _load_questions,
     classify,
-    run_analysis,
 )
 from services.common.db import get_sessionmaker
 from services.common.logging import configure_logging

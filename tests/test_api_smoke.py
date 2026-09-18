@@ -49,7 +49,12 @@ def test_관리자_엔드포인트가_모두_등록되어_있다() -> None:
         "/v1/proposals",
         "/v1/proposals/{proposal_id}/approve",
         "/v1/proposals/{proposal_id}/ignore",
-        "/v1/analysis/run",
+        # 분석은 두 단계다. 1단계로 분류하고, 사람이 고른 뒤, 2단계로 답을 만든다.
+        "/v1/analysis/triage",
+        "/v1/analysis/{run_id}/report",
+        "/v1/analysis/{run_id}/review",
+        "/v1/analysis/{run_id}/generate",
+        "/v1/todo",
     ):
         assert path in paths, path
 

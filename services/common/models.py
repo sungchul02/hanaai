@@ -53,6 +53,14 @@ AnswerSource = ENUM(
     create_type=False,
 )
 MenuStatus = ENUM("draft", "published", "archived", name="menu_status", create_type=False)
+ClusterReviewStatus = ENUM(
+    "pending_review",
+    "approved",
+    "rejected",
+    "answered",
+    name="cluster_review_status",
+    create_type=False,
+)
 DocumentKind = ENUM("web", "manual", "upload", name="document_kind", create_type=False)
 ProposalStatus = ENUM(
     "pending_review",
@@ -270,6 +278,11 @@ class QuestionCluster(Base):
     evidence_found: Mapped[bool | None] = mapped_column(Boolean)
     evidence_summary: Mapped[str | None] = mapped_column(Text)
     evidence_missing: Mapped[list[str]] = mapped_column(TextArray, server_default=text("'{}'"))
+    # 관리자 승인 관문. 1단계(분류)와 2단계(생성) 사이에 있다.
+    category: Mapped[str | None] = mapped_column(Text)
+    review_status: Mapped[str | None] = mapped_column(ClusterReviewStatus)
+    reviewed_by: Mapped[str | None] = mapped_column(Text)
+    reviewed_at: Mapped[dt.datetime | None] = mapped_column(TZDateTime)
 
 
 class QuestionClusterMember(Base):

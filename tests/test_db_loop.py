@@ -17,8 +17,9 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from agents.analyst.generation import run_analysis
 from agents.analyst.generator import PassthroughGenerator
-from agents.analyst.runner import Window, run_analysis
+from agents.analyst.runner import Window
 from services.common.db import get_engine, get_sessionmaker
 from services.common.models import CmsMenu, ContentProposal, Customer, Kiosk, QuestionLog, Site
 from services.kiosk_api import service

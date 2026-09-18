@@ -275,3 +275,82 @@ class RunRow(BaseModel):
     llm_calls: int | None = None
     cost_usd: float | None = None
     error: str | None = None
+
+# ------------------------------------------------------------------ 분석 2단계
+
+
+class RunTriageIn(BaseModel):
+    """[1단계 분류] 요청."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    customer_id: int
+    days: int = Field(default=7, ge=1, le=90)
+    backend: str | None = None
+
+
+class RunTriageOut(BaseModel):
+    analysis_run_id: int
+    backend: str
+    questions_seen: int
+    clusters_found: int
+    kept: int
+    dropped: int
+    stats: dict[str, int]
+    error: str | None = None
+
+
+class TriageTopic(BaseModel):
+    """중간 보고에 뜨는 주제 한 건."""
+
+    cluster_id: int
+    label: str
+    category: str
+    size: int
+    unanswered: int
+    keywords: list[str]
+    triage_keep: bool | None
+    triage_reason: str | None
+    review_status: str
+    sample_questions: list[str] = []
+    # 2단계를 이미 돌렸다면 채워져 있다
+    evidence_found: bool | None = None
+    evidence_missing: list[str] = []
+
+
+class TriageReport(BaseModel):
+    """관리자에게 올리는 중간 보고."""
+
+    analysis_run_id: int
+    status: str
+    questions_seen: int
+    clusters_found: int
+    stats: dict[str, int]
+    topics: list[TriageTopic]
+
+
+class ClusterReviewIn(BaseModel):
+    """어떤 주제에 답을 만들지 정한다. 이 관문이 2단계 비용을 가른다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reviewer: str = Field(min_length=1)
+    cluster_ids: list[int] = Field(min_length=1)
+    action: str = Field(pattern="^(approved|rejected)$")
+
+
+class RunGenerationIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    backend: str | None = None
+
+
+class RunGenerationOut(BaseModel):
+    analysis_run_id: int
+    backend: str
+    approved_topics: int
+    evidence_found: int
+    evidence_missing: int
+    proposals_made: int
+    stats: dict[str, int]
+    error: str | None = None

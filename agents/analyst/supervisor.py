@@ -33,7 +33,10 @@ log = structlog.get_logger(__name__)
 
 TRIAGE_PROMPT = """\
 너는 안내 키오스크 운영자다. 사용자 질문을 주제별로 묶은 목록을 받는다.
-각 주제가 **안내 콘텐츠로 만들 가치가 있는지** 판단한다.
+각 주제에 대해 두 가지를 한다.
+
+  1. **안내 콘텐츠로 만들 가치가 있는지** 판단한다.
+  2. 가치가 있으면 **어느 갈래의 업무인지** 분류한다.
 
 파일을 찾지 마라. 설명이나 머리말을 쓰지 마라. JSON 만 낸다.
 
@@ -47,12 +50,29 @@ TRIAGE_PROMPT = """\
 - 개인 신상이나 특정 민원의 개별 처리 상황 — 안내문으로 만들 수 없다
 - 이 기관 업무와 무관한 것
 
-출력 형식. 입력의 label 을 글자 그대로 옮긴다:
+category 는 관리자가 한 번에 훑어보고 판단할 수 있게 묶는 단위다.
+비슷한 성격의 주제에는 **같은 이름을 글자 그대로** 붙여라. 아래 갈래를 우선 쓰고,
+어디에도 안 맞을 때만 새 이름을 만든다. 새로 만들 때도 짧은 명사구로 쓴다.
+
+  시설 이용    주차, 화장실, 수유실, 엘리베이터, 와이파이, 흡연구역 등 청사 편의시설
+  부서 안내    부서 위치, 층별 배치, 담당 창구
+  민원 처리    증명서 발급, 여권, 전입신고, 준비물, 수수료
+  운영 시간    업무시간, 휴무일, 야간 운영
+  찾아오는 길  주소, 대중교통, 주차장 진입
+  연락처       전화번호, 문의처
+
+출력 형식. 입력의 label 을 글자 그대로 옮긴다. drop 인 주제는 category 를 비운다:
 [
-  {"label": "주차장 어디예요?", "keep": true,  "reason": "청사 이용자가 반복해서 묻는 위치 안내"},
-  {"label": "너 몇 살이야?",   "keep": false, "reason": "잡담"}
+  {"label": "주차장 어디예요?", "keep": true, "category": "시설 이용",
+   "reason": "청사 이용자가 반복해서 묻는 위치 안내"},
+  {"label": "세정과 몇 층이에요?", "keep": true, "category": "부서 안내",
+   "reason": "방문 전 반드시 필요한 정보"},
+  {"label": "너 몇 살이야?", "keep": false, "category": "", "reason": "잡담"}
 ]
 """
+
+# 분류가 비었을 때 쓸 이름. 빈칸으로 두면 화면에서 묶이지 않고 흩어진다.
+DEFAULT_CATEGORY = "기타"
 
 
 class Completer(Protocol):
@@ -66,6 +86,7 @@ class Verdict:
     label: str
     keep: bool
     reason: str
+    category: str = DEFAULT_CATEGORY
 
 
 @dataclass
@@ -75,6 +96,7 @@ class Assignment:
     label: str
     keep_reason: str
     report: EvidenceReport
+    category: str = DEFAULT_CATEGORY
 
 
 @dataclass
@@ -113,6 +135,7 @@ def _parse_verdicts(text: str) -> list[Verdict]:
                 label=str(row["label"]),
                 keep=bool(row.get("keep")),
                 reason=str(row.get("reason") or ""),
+                category=str(row.get("category") or "").strip() or DEFAULT_CATEGORY,
             )
         )
     return verdicts
@@ -175,7 +198,7 @@ class SupervisorAgent:
             # 하위 Agent 에게 명령을 내린다
             questions = list(cluster.get("_questions") or cluster.get("sample_questions") or [])
             report = self.worker.collect(verdict.label, questions)
-            assignment = Assignment(verdict.label, verdict.reason, report)
+            assignment = Assignment(verdict.label, verdict.reason, report, verdict.category)
             # 근거 문서를 아직 하나도 안 채운 고객사라면 근거를 요구하지 않는다.
             # 요구하면 지식 저장소를 채우기 전까지 제안이 한 건도 안 나온다.
             if report.answerable or not self.grounded:

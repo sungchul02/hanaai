@@ -58,6 +58,13 @@ HANAAI_DATABASE_URL=postgresql+psycopg://hanaai:hanaai@localhost:5432/hanaai_tes
 본다. 확신이 낮으면 `low_confidence` 로 남기고 분석에서는 공백으로 센다.
 스치듯 맞은 답이 '응답 완료' 로 기록되면 진짜 공백이 묻힌다.
 
+**분석은 두 단계이고 사이에 사람이 있다.**
+1단계(`run_triage`)는 묶고 판단하고 갈래를 나눈다. 싸다(20초 내외).
+2단계(`generation.run_generation`)는 승인된 주제만 근거를 찾고 답변을 만든다. 비싸다.
+합쳐진 `run_analysis` 는 CLI 와 테스트 전용이다 — 화면은 쓰지 않는다.
+관리자가 원하지 않는 주제에 생성 비용을 쓸 이유가 없고,
+다 끝난 뒤에 결과를 보여주면 되돌릴 방법이 없다.
+
 **추천을 CMS 에 자동 반영하지 않는다.** 승인 한 번이면 그대로 고객에게 보이는 문장이다.
 `content_proposal` → `cms_menu` 로 가는 유일한 길은 `services/ops_api/routers/review.py` 다.
 분석 쪽 코드는 그 라우터에 접근하지 않는다.

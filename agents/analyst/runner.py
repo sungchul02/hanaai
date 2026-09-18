@@ -35,7 +35,6 @@ from agents.analyst.cluster import (
     build_clusters,
     find_covering_menu,
 )
-from agents.analyst.content_agent import ContentAgent
 from agents.analyst.generator import ProposalGenerator, get_generator
 from agents.analyst.supervisor import (
     Completer as SupervisorCompleter,
@@ -47,7 +46,6 @@ from agents.analyst.supervisor import (
 from services.common.models import (
     AnalysisRun,
     CmsMenu,
-    ContentProposal,
     ProposalEvidence,
     QuestionCluster,
     QuestionClusterMember,
@@ -285,26 +283,52 @@ def _apply_supervision(
     return passing
 
 
-def run_analysis(
+def _new_run(session: Session, window: Window, customer_id: int, model: str) -> AnalysisRun:
+    run = AnalysisRun(
+        window_start=window.start,
+        window_end=window.end,
+        customer_id=customer_id,
+        analyzer_version=ANALYZER_VERSION,
+        model=model,
+        status="running",
+    )
+    session.add(run)
+    session.commit()
+    return run
+
+
+def _fail(session: Session, run: AnalysisRun, exc: Exception) -> None:
+    session.rollback()
+    run.status = "failed"
+    run.error = f"{type(exc).__name__}: {exc}"
+    run.finished_at = dt.datetime.now(dt.UTC)
+    session.commit()
+
+
+def _record_usage(run: AnalysisRun, generator: Any) -> None:
+    """이번 실행에서 쓴 LLM 비용 전부. 마지막 호출만 남기면 실제보다 훨씬 적게 보인다."""
+    base = getattr(generator, "base", generator)
+    run.token_usage = getattr(base, "total_usage", None) or getattr(generator, "last_usage", None)
+
+
+# ------------------------------------------------------------------ 1단계: 분류
+
+
+def run_triage(
     session: Session,
     window: Window,
     customer_id: int,
     generator: ProposalGenerator | None = None,
     min_cluster_size: int = MIN_CLUSTER_SIZE,
 ) -> int:
-    """분석 1회 실행. analysis_run_id 를 돌려준다."""
-    generator = generator or get_generator()
+    """질문을 묶고, LLM 이 가치를 판단하고 갈래를 나눈다. **답변은 만들지 않는다.**
 
-    run = AnalysisRun(
-        window_start=window.start,
-        window_end=window.end,
-        customer_id=customer_id,
-        analyzer_version=ANALYZER_VERSION,
-        model=generator.name,
-        status="running",
-    )
-    session.add(run)
-    session.commit()
+    여기서 멈추는 이유: 다음 단계(근거 조사 + 답변 생성)가 비싸다.
+    관리자가 무엇을 답할지 정한 뒤에 쓰는 것이 맞다.
+    전에는 버튼 하나가 끝까지 갔고, 관리자는 다 끝난 뒤에야 결과를 봤다.
+    """
+    generator = generator or get_generator()
+    run = _new_run(session, window, customer_id, generator.name)
 
     try:
         questions = _load_questions(session, window, customer_id)
@@ -336,9 +360,7 @@ def run_analysis(
         # 3) 기존 메뉴로 답할 수 있는지 확인하고 저장
         menus = _load_menus(session, customer_id)
         payloads: list[dict[str, Any]] = []
-        cluster_by_label: dict[str, int] = {}
-        skipped_covered = 0
-        skipped_small = 0
+        skipped_covered = skipped_small = 0
 
         for cluster in clusters:
             menu, score = find_covering_menu(cluster, menus, COVERAGE_THRESHOLD)
@@ -379,123 +401,70 @@ def run_analysis(
             elif cluster.size < min_cluster_size:
                 skipped_small += 1
             else:
-                payload = _cluster_payload(cluster, menu, row.cluster_id)
-                payloads.append(payload)
-                cluster_by_label[cluster.label] = row.cluster_id
+                payloads.append(_cluster_payload(cluster, menu, row.cluster_id))
         session.commit()
 
-        # 4) 상위 Agent: 안내 가치가 있는 주제만 고르고, 하위 Agent 에게 근거를 찾아오게 한다.
-        #    근거를 못 찾은 주제는 여기서 멈춘다. 근거 없이 쓰면 지어내기 때문이다.
-        candidates = len(payloads)
-        supervision = SupervisionResult()
+        # 4) 상위 Agent 가 가치를 판단하고 갈래를 나눈다
+        kept = dropped = 0
         if payloads:
             completer = cast(
                 "SupervisorCompleter | None",
                 generator if hasattr(generator, "complete") else None,
             )
-            supervision = SupervisorAgent(session, customer_id, completer).run(payloads)
-            payloads = _apply_supervision(session, payloads, supervision)
-            session.commit()
-
-        # 5) LLM 이 근거를 바탕으로 메뉴 초안 생성 → Agent 가 검증하고 못 잡은 질문이 있으면 고친다
-        if payloads:
-            active = list(
-                session.scalars(
-                    select(CmsMenu).where(
-                        CmsMenu.customer_id == customer_id, CmsMenu.status == "published"
+            supervisor = SupervisorAgent(session, customer_id, completer)
+            by_label = {str(p["label"]): p for p in payloads}
+            for decision in supervisor.triage(payloads):
+                payload = by_label.get(decision.label)
+                if payload is None:
+                    continue
+                session.execute(
+                    update(QuestionCluster)
+                    .where(QuestionCluster.cluster_id == payload["_cluster_id"])
+                    .values(
+                        triage_keep=decision.keep,
+                        triage_reason=decision.reason,
+                        category=decision.category if decision.keep else None,
+                        review_status="pending_review" if decision.keep else "rejected",
                     )
                 )
-            )
-            agent = ContentAgent(generator, existing_menus=active)
-            proposals = agent.generate(payloads, window.label)
-            generator = agent  # 아래에서 usage / traces 를 읽는다
-        else:
-            proposals = []
-
-        # 제안 → 근거를 잇기 위한 표. 주제 하나가 어떤 문서 조각에서 나왔는지.
-        evidence_by_cluster = {
-            int(payload["_cluster_id"]): payload.get("_evidence") or [] for payload in payloads
-        }
-
-        stored = 0
-        for proposal in proposals:
-            dedupe_key = proposal.compute_dedupe_key()
-            cluster_id = _first_cluster_id(generator, dedupe_key, cluster_by_label)
-            result = session.execute(
-                pg_insert(ContentProposal)
-                .values(
-                    analysis_run_id=run.analysis_run_id,
-                    cluster_id=cluster_id,
-                    customer_id=customer_id,
-                    title=proposal.title,
-                    body=proposal.body,
-                    reason=proposal.reason,
-                    keywords=proposal.keywords,
-                    sample_questions=proposal.evidence.sample_questions,
-                    question_count=proposal.evidence.question_count,
-                    impact_score=proposal.impact_score,
-                    confidence=proposal.confidence,
-                    contract=proposal.model_dump(mode="json"),
-                    status="pending_review",
-                    dedupe_key=dedupe_key,
-                    **_verification_columns(generator, proposal.dedupe_key),
+                # 질문 하나하나에도 판정을 내려 적는다. 주제에만 적으면
+                # '최근 질문' 화면은 "너 몇 살이야" 도 useful 로 보여준다.
+                session.execute(
+                    update(QuestionLog)
+                    .where(QuestionLog.cluster_id == payload["_cluster_id"])
+                    .values(
+                        verdict="useful" if decision.keep else "irrelevant",
+                        verdict_reason=f"AI 판단: {decision.reason}",
+                    )
                 )
-                .on_conflict_do_nothing(
-                    index_elements=["customer_id", "dedupe_key"],
-                    index_where=text(
-                        "dedupe_key IS NOT NULL "
-                        "AND status IN ('pending_review', 'approved', 'edited')"
-                    ),
-                )
-                .returning(ContentProposal.proposal_id)
-            ).scalar_one_or_none()
-            if result is not None:
-                stored += 1
-                _link_evidence(session, result, evidence_by_cluster.get(cluster_id or -1, []))
-        session.commit()
+                kept += decision.keep
+                dropped += not decision.keep
+            session.commit()
 
-        run.proposals_made = stored
         run.stats = {
             "clusters": len(clusters),
-            "triage_candidates": candidates,
-            "sent_to_llm": len(payloads),
+            "triage_candidates": len(payloads),
             "skipped_covered": skipped_covered,
             "skipped_small": skipped_small,
-            **supervision.as_stats(),
             "min_cluster_size": min_cluster_size,
-            "generated": len(proposals),
-            # 이미 검토 대기중이거나 반영한 주제는 다시 제안하지 않는다
-            "blocked_duplicate": len(proposals) - stored,
+            "triage_kept": kept,
+            "triage_dropped": dropped,
         }
-        # 마지막 호출이 아니라 이번 분석에서 쓴 전부를 남긴다.
-        # ContentAgent 가 생성기를 감싸고 있으므로 안쪽의 누적값을 찾아 읽는다.
-        base = getattr(generator, "base", generator)
-        run.token_usage = getattr(base, "total_usage", None) or getattr(
-            generator, "last_usage", None
-        )
-        rejected = getattr(generator, "last_errors", [])
-        if rejected:
-            run.error = f"검증 실패 {len(rejected)}건: " + " | ".join(rejected)[:2000]
-        run.status = "succeeded"
+        _record_usage(run, generator)
+        run.status = "awaiting_review"
         run.finished_at = dt.datetime.now(dt.UTC)
         session.commit()
 
         log.info(
-            "analysis_done",
+            "triage_done",
             run_id=run.analysis_run_id,
-            backend=generator.name,
             questions=len(questions),
             clusters=len(clusters),
-            sent_to_llm=len(payloads),
-            proposals=len(proposals),
-            stored=stored,
+            kept=kept,
+            dropped=dropped,
         )
     except Exception as exc:
-        session.rollback()
-        run.status = "failed"
-        run.error = f"{type(exc).__name__}: {exc}"
-        run.finished_at = dt.datetime.now(dt.UTC)
-        session.commit()
+        _fail(session, run, exc)
         raise
 
     return run.analysis_run_id
