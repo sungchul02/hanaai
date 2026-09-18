@@ -22,6 +22,10 @@
   header h1 { margin: 0; font-size: 16px; font-weight: 700; }
   header .spacer { flex: 1; }
   .muted { color: var(--muted); font-size: 12.5px; }
+  .live {
+    display: none; background: #ecfdf5; color: var(--ok); border: 1px solid #a7f3d0;
+    border-radius: 12px; padding: 2px 10px; font-size: 12px;
+  }
   select, button, input, textarea { font-family: inherit; font-size: 13px; }
   select, input, textarea {
     border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; background: #fff; color: inherit;
@@ -84,6 +88,7 @@
   <select id="customer" onchange="loadAll()"></select>
   <span class="spacer"></span>
   <span class="muted" id="ts">—</span>
+  <span id="live" class="live"></span>
   <button onclick="loadAll()">새로고침</button>
   <button class="primary" id="runbtn" onclick="runAnalysis()">분석 실행</button>
 </header>
@@ -100,13 +105,18 @@
   <h2>많이 나온 주제</h2>
   <div class="panel" id="topics"></div>
 
-  <h2>최근 질문 <span style="text-transform:none;letter-spacing:0">
+  <h2>최근 질문 <span style="text-transform:none;letter-spacing:0" class="muted">(10초마다 자동 갱신)</span>
+    <span style="text-transform:none;letter-spacing:0">
     <label class="muted"><input type="checkbox" id="onlyMiss" onchange="loadQuestions()"> 답하지 못한 것만</label>
   </span></h2>
   <div class="panel" id="questions"></div>
 
-  <h2>현재 CMS 메뉴</h2>
-  <div class="panel" id="menus"></div>
+  <h2>현재 CMS 메뉴
+    <button style="text-transform:none;letter-spacing:0;margin-left:8px"
+            onclick="openEditor()">+ 메뉴 직접 추가</button>
+  </h2>
+  <div class="panel" id="editor" style="display:none"></div>
+  <div class="panel" id="menus" style="margin-top:12px"></div>
 </main>
 
 <script>
@@ -129,6 +139,7 @@ async function loadCustomers() {
 }
 
 function renderCards(s) {
+  lastCount = s.questions_7d;
   const rate = s.answer_rate_7d == null ? "—" : (s.answer_rate_7d * 100).toFixed(1) + "%";
   const items = [
     ["질문 7일", s.questions_7d.toLocaleString(), ""],
@@ -267,19 +278,124 @@ function renderQuestions(rows) {
 function renderMenus(rows) {
   if (!rows.length) { $("menus").innerHTML = '<div class="empty">메뉴가 없습니다.</div>'; return; }
   $("menus").innerHTML = `<table><thead><tr>
-      <th>메뉴명</th><th>안내 문구</th><th>키워드</th><th>출처</th><th>상태</th>
+      <th>메뉴명</th><th>안내 문구</th><th>키워드</th><th>출처</th><th>상태</th><th></th>
     </tr></thead><tbody>` + rows.map(m => `<tr>
       <td><b>${esc(m.title)}</b></td>
       <td style="max-width:420px">${esc(m.body)}</td>
       <td class="muted">${m.keywords.map(esc).join(", ")}</td>
       <td>${m.origin === "ai_proposal" ? '<span class="tag ai">AI 추천</span>' : '<span class="tag">직접 작성</span>'}</td>
       <td class="muted">${esc(m.status)}</td>
+      <td><button onclick='openEditor(${JSON.stringify(m).replace(/'/g, "&#39;")})'>수정</button></td>
     </tr>`).join("") + `</tbody></table>`;
+}
+
+// 관리자가 AI 를 기다리지 않고 직접 쓰는 길. CMS 인데 이게 없으면 반쪽이다.
+let editing = null;
+
+function openEditor(menu) {
+  editing = menu || null;
+  const m = menu || { title: "", body: "", keywords: [], status: "published" };
+  $("editor").style.display = "block";
+  $("editor").innerHTML = `
+    <div class="prop">
+      <div class="t">${menu ? "메뉴 수정 — " + esc(menu.title) : "새 메뉴"}</div>
+      <div class="draft">
+        <div class="row"><label>메뉴명</label><input id="m_title" value="${esc(m.title)}"></div>
+        <div class="row"><label>안내 문구</label><textarea id="m_body">${esc(m.body)}</textarea></div>
+        <div class="row"><label>검색 키워드 (쉼표로 구분 · 두 글자 이상)</label>
+          <input id="m_keywords" value="${esc(m.keywords.join(', '))}"></div>
+      </div>
+      <div class="actions">
+        <button onclick="previewMenu()">미리보기</button>
+        <button class="primary" onclick="saveMenu()">${menu ? "저장" : "추가"}</button>
+        <button onclick="closeEditor()">취소</button>
+        <span class="muted">미리보기를 누르면 이 메뉴가 어떤 질문을 잡는지 실제로 돌려봅니다</span>
+      </div>
+      <div id="m_preview" style="margin-top:12px"></div>
+    </div>`;
+  $("editor").scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function closeEditor() { editing = null; $("editor").style.display = "none"; }
+
+function editorPayload() {
+  return {
+    title: $("m_title").value.trim(),
+    body: $("m_body").value.trim(),
+    keywords: $("m_keywords").value.split(",").map(s => s.trim()).filter(Boolean),
+  };
+}
+
+async function previewMenu() {
+  const p = editorPayload();
+  try {
+    const out = await api("/v1/menus/preview", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...p, customer_id: Number(cid()),
+                             menu_id: editing ? editing.menu_id : null })
+    });
+    const list = out.samples.length
+      ? `<ul>${out.samples.map(q => `<li>${esc(q)}</li>`).join("")}</ul>`
+      : '<div class="muted">새로 잡는 질문이 없습니다. 키워드를 늘려보세요.</div>';
+    $("m_preview").innerHTML = `
+      <div class="draft">
+        <b>이 메뉴가 새로 답하게 되는 질문 ${out.by_draft}건</b>
+        <span class="muted">(아직 답하지 못한 질문 ${out.total}건 기준)</span>
+        ${list}
+      </div>`;
+  } catch (e) { showError(e.message); }
+}
+
+async function saveMenu() {
+  const p = editorPayload();
+  if (!p.title || p.body.length < 10 || !p.keywords.length) {
+    showError("메뉴명, 안내 문구(10자 이상), 키워드 1개 이상이 필요합니다.");
+    return;
+  }
+  try {
+    if (editing) {
+      await api(`/v1/menus/${editing.menu_id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(p)
+      });
+    } else {
+      await api("/v1/menus", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...p, customer_id: Number(cid()) })
+      });
+    }
+    closeEditor();
+    await loadAll();
+    flash("메뉴가 반영되었습니다. 키오스크가 바로 답합니다");
+  } catch (e) { showError(e.message); }
 }
 
 async function loadQuestions() {
   const miss = $("onlyMiss").checked;
   renderQuestions(await api(`/v1/questions?customer_id=${cid()}&only_unanswered=${miss}&limit=40`));
+}
+
+// 추천이 0건이면 "아무 일도 안 일어났다" 로 보인다. 이유를 반드시 설명한다.
+function explainRun(out) {
+  const st = out.stats || {};
+  const lines = [
+    `분석 완료 (${out.backend})`,
+    ``,
+    `질문 ${out.questions_seen}건 → 주제 ${out.clusters_found}개`,
+    `새 추천 ${out.proposals_made}건`,
+    ``,
+  ];
+  if (st.skipped_covered) lines.push(`· ${st.skipped_covered}개 주제는 기존 메뉴가 이미 답하고 있어 제외`);
+  if (st.skipped_small) lines.push(`· ${st.skipped_small}개 주제는 질문이 ${st.min_cluster_size}건 미만이라 제외`);
+  if (st.blocked_duplicate) lines.push(`· ${st.blocked_duplicate}건은 이미 검토했거나 반영한 주제라 다시 제안하지 않음`);
+  if (!out.proposals_made) {
+    lines.push(``, `추천할 새 주제가 없습니다.`,
+      `아래 [메뉴 직접 추가] 로 직접 만들거나, 기존 메뉴의 키워드를 고칠 수 있습니다.`);
+  } else {
+    lines.push(``, `아래 'AI 추천 콘텐츠' 에서 검토하세요.`);
+  }
+  return lines.join("
+");
 }
 
 async function runAnalysis() {
@@ -315,7 +431,28 @@ async function loadAll() {
   } catch (e) { showError("불러오지 못했습니다: " + e.message); }
 }
 
-(async () => { await loadCustomers(); await loadAll(); })();
+// 화면을 열어둔 채 옆에서 키오스크에 질문하는 일이 잦다. 자동 갱신이 없으면
+// 저장이 안 되는 것처럼 보인다. 실제로 그렇게 오해했다.
+let lastCount = null;
+async function tick() {
+  const before = lastCount;
+  await loadAll();
+  if (before !== null && lastCount > before) {
+    flash(`질문 ${lastCount - before}건이 새로 들어왔습니다`);
+  }
+}
+function flash(message) {
+  const el = $("live");
+  el.textContent = message;
+  el.style.display = "inline";
+  setTimeout(() => { el.style.display = "none"; }, 4000);
+}
+
+(async () => {
+  await loadCustomers();
+  await loadAll();
+  setInterval(tick, 10000);
+})();
 </script>
 </body>
 </html>

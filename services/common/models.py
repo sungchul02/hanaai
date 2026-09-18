@@ -180,6 +180,8 @@ class AnalysisRun(Base):
     clusters_found: Mapped[int | None] = mapped_column(Integer)
     proposals_made: Mapped[int | None] = mapped_column(Integer)
     token_usage: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # 무엇을 왜 건너뛰었는지. 추천이 0건일 때 화면이 이유를 설명하는 데 쓴다.
+    stats: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'"))
     status: Mapped[str] = mapped_column(Text, server_default=text("'running'"))
     error: Mapped[str | None] = mapped_column(Text)
 

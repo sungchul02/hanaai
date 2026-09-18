@@ -43,4 +43,5 @@ def run(payload: RunAnalysisIn, session: DbSession) -> RunAnalysisOut:
         clusters_found=record.clusters_found or 0,
         proposals_made=record.proposals_made or 0,
         error=record.error,
+        stats={key: int(value) for key, value in (record.stats or {}).items()},
     )

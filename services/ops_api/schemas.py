@@ -91,6 +91,64 @@ class ProposalRow(BaseModel):
     remaining_misses: list[str]
 
 
+class MenuCreateIn(BaseModel):
+    """관리자가 직접 만드는 메뉴.
+
+    AI 추천을 기다리지 않고 바로 쓸 수 있어야 한다. 이미 아는 안내는 그냥 적으면 되고,
+    AI 는 '관리자가 미처 몰랐던 공백' 을 찾는 데 쓴다. 둘은 경쟁 관계가 아니다.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    customer_id: int
+    title: str = Field(min_length=2, max_length=40)
+    body: str = Field(min_length=10, max_length=500)
+    keywords: list[str] = Field(min_length=1, max_length=10)
+    code: str | None = Field(default=None, description="비우면 제목에서 만든다")
+    status: str = Field(default="published", pattern="^(draft|published|archived)$")
+
+
+class MenuUpdateIn(BaseModel):
+    """메뉴 수정. 준 항목만 바뀐다.
+
+    키워드 추가가 특히 중요하다. "차 세울 데 있나요?" 처럼 콘텐츠는 있는데 말이 안 겹쳐
+    못 잡는 질문은, 새 메뉴가 아니라 키워드 한 줄로 해결된다.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, min_length=2, max_length=40)
+    body: str | None = Field(default=None, min_length=10, max_length=500)
+    keywords: list[str] | None = Field(default=None, max_length=10)
+    status: str | None = Field(default=None, pattern="^(draft|published|archived)$")
+
+
+class MenuPreviewIn(BaseModel):
+    """저장하기 전에 '이 메뉴가 어떤 질문을 잡는지' 미리 본다.
+
+    AI 추천에는 검증 수치가 붙는데 관리자가 직접 쓴 것에는 없으면 앞뒤가 안 맞는다.
+    같은 도구로 같은 숫자를 보여준다.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    customer_id: int
+    title: str = Field(min_length=1, max_length=40)
+    body: str = Field(default="", max_length=500)
+    keywords: list[str] = Field(default_factory=list, max_length=10)
+    menu_id: int | None = Field(default=None, description="수정 중이면 자기 자신은 제외")
+    days: int = Field(default=7, ge=1, le=90)
+
+
+class MenuPreviewOut(BaseModel):
+    total: int
+    by_draft: int
+    by_existing: int
+    coverage: float
+    samples: list[str]
+    misses: list[str]
+
+
 class ApproveIn(BaseModel):
     """[추가하기] 또는 [수정] 후 추가.
 
@@ -129,3 +187,5 @@ class RunAnalysisOut(BaseModel):
     clusters_found: int
     proposals_made: int
     error: str | None
+    # 추천이 0건일 때 "왜" 를 화면이 설명할 수 있어야 한다.
+    stats: dict[str, int]

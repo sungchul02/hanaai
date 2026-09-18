@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from services.common.health import build_health_router
 from services.common.logging import configure_logging
-from services.ops_api.routers import analysis, insights, review
+from services.ops_api.routers import analysis, cms, insights, review
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -24,6 +24,7 @@ app = FastAPI(
 
 app.include_router(build_health_router())
 app.include_router(insights.router)
+app.include_router(cms.router)
 app.include_router(review.router)
 app.include_router(analysis.router)
 

@@ -207,6 +207,8 @@ def run_analysis(
         menus = _load_menus(session, customer_id)
         payloads: list[dict[str, Any]] = []
         cluster_by_label: dict[str, int] = {}
+        skipped_covered = 0
+        skipped_small = 0
 
         for cluster in clusters:
             menu, score = find_covering_menu(cluster, menus, COVERAGE_THRESHOLD)
@@ -242,7 +244,11 @@ def run_analysis(
             )
 
             # 너무 작거나 이미 답하고 있는 주제는 LLM 에게 보내지 않는다. 비용과 소음을 줄인다.
-            if cluster.size >= min_cluster_size and menu is None:
+            if menu is not None:
+                skipped_covered += 1
+            elif cluster.size < min_cluster_size:
+                skipped_small += 1
+            else:
                 payload = _cluster_payload(cluster, menu)
                 payloads.append(payload)
                 cluster_by_label[cluster.label] = row.cluster_id
@@ -298,6 +304,16 @@ def run_analysis(
                 stored += 1
 
         run.proposals_made = stored
+        run.stats = {
+            "clusters": len(clusters),
+            "sent_to_llm": len(payloads),
+            "skipped_covered": skipped_covered,
+            "skipped_small": skipped_small,
+            "min_cluster_size": min_cluster_size,
+            "generated": len(proposals),
+            # 이미 검토 대기중이거나 반영한 주제는 다시 제안하지 않는다
+            "blocked_duplicate": len(proposals) - stored,
+        }
         run.token_usage = getattr(generator, "last_usage", None)
         rejected = getattr(generator, "last_errors", [])
         if rejected:

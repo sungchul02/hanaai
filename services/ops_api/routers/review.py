@@ -24,17 +24,6 @@ DbSession = Annotated[Session, Depends(get_session)]
 REVIEWABLE = ("pending_review",)
 
 
-@router.get("/menus", response_model=list[MenuRow])
-def list_menus(session: DbSession, customer_id: int) -> list[CmsMenu]:
-    return list(
-        session.scalars(
-            select(CmsMenu)
-            .where(CmsMenu.customer_id == customer_id)
-            .order_by(CmsMenu.status, CmsMenu.menu_id)
-        )
-    )
-
-
 @router.get("/proposals", response_model=list[ProposalRow])
 def list_proposals(
     session: DbSession,
