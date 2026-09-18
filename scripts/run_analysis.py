@@ -83,9 +83,9 @@ def main() -> None:
                 if menu is not None:
                     state = "응답중"
                 elif cluster.size < MIN_CLUSTER_SIZE:
-                    state = "표본부족"
+                    state = "표본부족"  # MIN_CLUSTER_SIZE=1 이면 나오지 않는다
                 else:
-                    state = "추천대상"
+                    state = "판단대상"
                 print(f"{cluster.size:5d} {cluster.unanswered:5d}  {state:10s} {cluster.label}")
             return
 

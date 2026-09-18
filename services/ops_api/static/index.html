@@ -338,18 +338,14 @@ const NOW_CARD = {
   }),
   idle: () => {
     const t = state.todo || {};
-    const need = state.run?.stats?.min_cluster_size || 4;
     if (t.growing_topics) {
-      // 분류는 다 했다. 다만 아직 안내를 만들 만큼 쌓이지 않은 주제가 있다.
-      // 이걸 '미분석' 으로 부르면 눌러도 안 줄어드는 할 일이 영원히 남는다.
       return {
         step: "✓ 처리 완료",
         title: "지금 만들 수 있는 안내는 다 만들었습니다",
         body:
-          `주제 ${t.growing_topics}개가 아직 질문 ${need}건을 못 채웠습니다.<br>` +
-          `같은 것을 묻는 사람이 더 쌓여야 안내를 만들 가치가 생깁니다.<br>` +
-          `질문이 더 들어오면 저절로 다시 대상이 됩니다.`,
-        cta: `<button onclick="go('questions')">어떤 질문인지 보기</button>`,
+          `주제 ${t.growing_topics}개는 기존 메뉴가 이미 답하고 있습니다.<br>` +
+          `새 질문이 들어오면 다시 분류할 수 있습니다.`,
+        cta: `<button onclick="go('questions')">질문 보기</button>`,
       };
     }
     return {
@@ -378,9 +374,6 @@ function renderHome() {
       "승인하면 키오스크에 바로 나갑니다", "go('drafts')"],
     ["문서 보강 필요", t.needs_document, "묻는데 근거 문서가 없어 답을 못 만듭니다", "go('gaps')"],
     ["중복 메뉴", t.duplicate_menus, "제목이 같은 메뉴. 키오스크는 하나만 답합니다", "go('dups')"],
-    // 할 일이 아니다. 눌러서 줄일 수 있는 것이 아니라 시간이 해결한다.
-    ["더 쌓여야 하는 주제", now === "idle" ? 0 : (t.growing_topics || 0),
-      "질문이 더 들어오면 저절로 다시 대상이 됩니다", "go('questions')"],
   ].filter(([, n]) => n > 0);
 
   return renderPipeline(now) + `
@@ -417,9 +410,8 @@ function triageSummary(r) {
           <td class="muted">키오스크에 들어온 것 전부</td></tr>
       <tr><td>주제로 묶임</td><td class="num">${r.clusters_found}개</td>
           <td class="muted">비슷한 질문끼리 묶은 결과</td></tr>
-      <tr><td>규칙이 제외</td><td class="num">${(st.skipped_small || 0) + (st.skipped_covered || 0)}개</td>
-          <td class="muted">질문 ${st.min_cluster_size}건 미만 ${st.skipped_small || 0}개 ·
-              기존 메뉴가 답함 ${st.skipped_covered || 0}개</td></tr>
+      <tr><td>규칙이 제외</td><td class="num">${st.skipped_covered || 0}개</td>
+          <td class="muted">기존 메뉴가 이미 답하고 있는 주제</td></tr>
       <tr><td><b>AI가 판단</b></td><td class="num"><b>${st.triage_candidates || 0}개</b></td>
           <td class="muted">통과 ${st.triage_kept || 0}개 · 안내 가치 없어 제외 ${st.triage_dropped || 0}개</td></tr>
     </tbody></table>
@@ -1023,7 +1015,6 @@ async function runTriage() {
       `질문 분류 완료`, ``,
       `질문 ${out.questions_seen}건 → 주제 ${out.clusters_found}개`,
       `  · ${out.stats.skipped_covered || 0}개는 기존 메뉴가 이미 답하고 있어 제외`,
-      `  · ${out.stats.skipped_small || 0}개는 질문이 ${out.stats.min_cluster_size}건 미만이라 제외`,
       ``,
     ];
     if (out.stats.triage_candidates) {
@@ -1032,9 +1023,7 @@ async function runTriage() {
     } else {
       // 0 건일 때가 제일 헷갈린다. 눌렀는데 아무 일도 안 일어난 것처럼 보인다.
       lines.push(`AI에게 보낼 주제가 없었습니다.`, ``,
-                 `남은 주제가 전부 질문 ${out.stats.min_cluster_size}건 미만이거나,`,
-                 `기존 메뉴가 이미 답하고 있습니다.`,
-                 `같은 것을 묻는 사람이 더 쌓여야 새 안내를 만들 가치가 생깁니다.`);
+                 `묶인 주제를 기존 메뉴가 전부 답하고 있습니다.`);
     }
     alert(lines.join("\n"));
     if (out.kept) { view = "pick"; }

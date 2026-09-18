@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from agents.analyst.content_agent import ContentAgent
 from agents.analyst.generator import ProposalGenerator, get_generator
 from agents.analyst.runner import (
+    MIN_CLUSTER_SIZE,
     Window,
     _fail,
     _first_cluster_id,
@@ -255,7 +256,7 @@ def run_analysis(
     window: Window,
     customer_id: int,
     generator: ProposalGenerator | None = None,
-    min_cluster_size: int = 4,
+    min_cluster_size: int = MIN_CLUSTER_SIZE,
 ) -> int:
     """분류와 생성을 한 번에. **관리자 승인을 건너뛴다.**
 

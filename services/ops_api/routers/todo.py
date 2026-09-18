@@ -57,7 +57,8 @@ _TODO_SQL = text(
           AND q.cluster_id IS NULL
           -- 규칙이 거른 것(욕설 · 자모만 입력)은 클러스터가 없지만 이미 판단받았다.
           AND q.verdict = 'pending')                                        AS unanalyzed,
-      -- 묶이긴 했는데 아직 안내를 만들 만큼 쌓이지 않은 주제. 할 일이 아니라 참고용이다.
+      -- 마지막 분석에서 규칙이 걸러낸 주제. 지금은 '기존 메뉴가 이미 답함' 뿐이다.
+      -- 질문 수로 미리 자르던 규칙은 폐기했다 — 무엇이 가치 있는지는 사람이 정한다.
       (SELECT count(*) FROM question_cluster c
         WHERE c.customer_id = :customer_id
           AND c.analysis_run_id = (
