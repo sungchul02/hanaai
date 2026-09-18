@@ -156,12 +156,35 @@ def find_answer(question: str, menus: list[CmsMenu]) -> tuple[CmsMenu | None, fl
 
     if best is None:
         return None, 0.0, "fallback"
-    if best_score >= STRONG_MATCH:
+    if best_score >= STRONG_MATCH and _answers_what_was_asked(question, best):
         return best, best_score, "cms_menu"
 
     if best_score >= WEAK_MATCH:
         return best, best_score, "low_confidence"
     return None, best_score, "fallback"
+
+
+def _answers_what_was_asked(question: str, menu: CmsMenu) -> bool:
+    """질문이 묻는 항목을 이 메뉴가 다루는가.
+
+    "주차장 어디예요" 에 주차 요금 안내가 '안내 완료' 로 답한 적이 있다.
+    질문의 내용어가 '주차장' 하나뿐이라 주차 관련 메뉴 셋이 전부 1.00 으로 걸렸고,
+    순서상 첫 번째가 이겼다. 근거 문서에 주차장 위치가 없어서
+    **어느 메뉴도 그 질문에 답할 수 없었는데도** 자신 있게 답했다.
+
+    의도가 어긋나면 답을 감추지는 않는다 — 관련 안내는 보여주는 편이 낫다.
+    대신 '참고 안내' 로만 내린다. 그래야 두 가지가 지켜진다.
+      1. 시민이 "정확히 일치하는 안내를 찾지 못했습니다" 를 먼저 읽는다.
+      2. low_confidence 로 기록되어 분석이 그 공백을 찾아낸다.
+         스치듯 맞은 답이 '응답 완료' 로 남으면 진짜 공백이 묻힌다.
+    """
+    asked = textutil.intents(question)
+    if not asked:
+        return True  # 무엇을 묻는지 모르면 막지 않는다
+    covers = textutil.intents(f"{menu.title} {' '.join(menu.keywords)}")
+    if not covers:
+        return True  # 메뉴가 무엇을 다루는지 모르면 막지 않는다
+    return bool(asked & covers)
 
 
 def customer_of(session: Session, kiosk: Kiosk) -> int:

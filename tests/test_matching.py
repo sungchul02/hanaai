@@ -208,3 +208,21 @@ def test_시간을_묻는데_규모_안내가_답하지_않는다() -> None:
 )
 def test_질문이_무엇을_묻는지_읽는다(question: str, expected: set[str]) -> None:
     assert textutil.intents(question) == expected
+
+
+def test_묻지_않은_항목으로_자신있게_답하지_않는다() -> None:
+    """"주차장 어디예요" 에 주차 요금 안내가 '안내 완료' 로 답했다.
+    질문의 내용어가 '주차장' 하나뿐이라 주차 메뉴 셋이 전부 1.00 으로 걸렸고,
+    순서상 첫 번째가 이겼다. 근거 문서에 주차장 위치가 없어서 어느 메뉴도
+    그 질문에 답할 수 없었는데도 자신 있게 답했다."""
+    fee = _menu("주차 요금", "최초 2시간 무료이며 30분당 500원입니다.", ["주차요금", "주차비"])
+    hours = _menu("주차장 운영시간", "평일 08시부터 18시까지 운영합니다.", ["주차 운영시간"])
+    hours.menu_id = 200
+
+    found, _score, verdict = find_answer("주차장 어디예요", [fee, hours])
+    assert verdict == "low_confidence", "위치를 묻는데 답할 메뉴가 없으면 '참고 안내' 여야 한다"
+    assert found is not None, "관련 안내는 보여주되 확신만 낮춘다"
+
+    # 묻는 항목을 다루는 메뉴가 있으면 그대로 '안내 완료'
+    _found, _score, verdict = find_answer("주차장 몇 시까지 해요", [fee, hours])
+    assert verdict == "cms_menu"
