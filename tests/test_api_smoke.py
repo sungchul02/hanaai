@@ -29,7 +29,9 @@ def test_화면_B_가_서빙된다() -> None:
     with TestClient(ops_app) as client:
         page = client.get("/ui/")
         assert page.status_code == 200
-        assert "승인 대기" in page.text
+        # 화면의 뼈대. 단계가 바뀌면 이 문구도 같이 바뀌어야 한다.
+        for marker in ("① 질문 분류", "② 답할 것 선택", "③ 답변 생성", "④ 초안 승인"):
+            assert marker in page.text, marker
 
 
 def test_루트는_화면으로_보낸다() -> None:
