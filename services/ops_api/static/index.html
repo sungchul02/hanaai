@@ -394,8 +394,7 @@ function explainRun(out) {
   } else {
     lines.push(``, `아래 'AI 추천 콘텐츠' 에서 검토하세요.`);
   }
-  return lines.join("
-");
+  return lines.join("\n");
 }
 
 async function runAnalysis() {
