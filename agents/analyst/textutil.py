@@ -213,11 +213,44 @@ def _common_prefix(left: str, right: str) -> int:
     return length
 
 
-def token_score(left: str, right: str) -> float:
+# 관공서 부서 이름의 공통 접미사. '세정과' 와 '축산과' 는 글자가 하나도 안 겹치지만
+# 둘 다 부서이고, 사람들은 둘을 같은 형태로 묻는다 — "X 몇 층이에요".
+#
+# 이게 없으면 부서 위치 질문이 전부 1건짜리로 흩어진다. 첫날 103건 중 13건이 그랬고,
+# 주차 다음으로 많이 물어본 주제인데 표본 부족으로 통째로 빠졌다.
+# 근거 문서에 1~7층 배치가 다 있는데도 답이 안 나왔다.
+#
+# '실' 은 넣지 않는다. 화장실 · 민원실 · 수유실이 전부 걸려서 서로 다른 주제가 뭉친다.
+# 지금 그 셋은 제대로 갈려 있고, 합치면 더 나빠진다.
+# '관' 도 넣지 않는다 — 감사관(부서)과 도서관(시설)이 섞인다.
+_ORG_SUFFIX = "과"
+_ORG_MIN_LEN = 3
+# 같은 부류라는 것만으로 주는 점수. 같은 주제로 묶이되(임계 0.42) 확신하지는 않는 정도다.
+#
+# **묶기에서만 쓴다. 답변 매칭에서는 절대 쓰지 않는다.**
+#   처음에 구분 없이 켰더니 "세정과 몇 층이에요?" 가 1층 안내로 답해졌다. 세정과는 6층이다.
+#   1층 본문의 '청년정책과' 와 세정과가 0.5 로 걸린 것이다.
+#   묶을 때는 "부서 위치를 묻는 같은 질문" 이라는 뜻이지만,
+#   답할 때는 세정과가 곧 세정과여야 한다. 자신 있게 틀린 답은 답 안 하는 것보다 나쁘다.
+ORG_KINSHIP = 0.5
+
+
+def _same_org_kind(left: str, right: str) -> bool:
+    return (
+        len(left) >= _ORG_MIN_LEN
+        and len(right) >= _ORG_MIN_LEN
+        and left.endswith(_ORG_SUFFIX)
+        and right.endswith(_ORG_SUFFIX)
+    )
+
+
+def token_score(left: str, right: str, kinship: bool = False) -> float:
     """낱말 두 개가 같은 말인지. 0~1.
 
     글자 겹침만 보면 "분실" 과 "분실물" 이 0.5 에 그친다. 한국어는 어간이 앞에 오므로
     앞부분이 같으면 같은 말일 가능성이 높다. 그 점을 반영한다.
+
+    kinship: 같은 부류의 부서명을 닮은 것으로 볼지. **묶기에서만 켠다.**
     """
     if left == right:
         return 1.0
@@ -225,6 +258,8 @@ def token_score(left: str, right: str) -> float:
     prefix = _common_prefix(left, right)
     if prefix >= 2:
         score = max(score, prefix / max(len(left), len(right)))
+    if kinship and _same_org_kind(left, right):
+        score = max(score, ORG_KINSHIP)
     return score
 
 
@@ -234,7 +269,9 @@ HEAD_PENALTY = 0.55
 HEAD_DEPTH = 1
 
 
-def head_affinity(left: list[str], right: list[str], depth: int = HEAD_DEPTH) -> float:
+def head_affinity(
+    left: list[str], right: list[str], depth: int = HEAD_DEPTH, kinship: bool = False
+) -> float:
     """두 질문의 '앞머리' 가 서로 통하는 정도.
 
     한국어 질문은 주제를 앞에 놓는다. "주차 무료인가요" 와 "등본 무료인가요" 는
@@ -250,18 +287,18 @@ def head_affinity(left: list[str], right: list[str], depth: int = HEAD_DEPTH) ->
     if not left or not right:
         return 0.0
     heads_l, heads_r = left[:depth], right[:depth]
-    return max(token_score(a, b) for a in heads_l for b in heads_r)
+    return max(token_score(a, b, kinship) for a in heads_l for b in heads_r)
 
 
-def _coverage(source: set[str], target: set[str]) -> float:
-    return sum(max(token_score(s, t) for t in target) for s in source) / len(source)
+def _coverage(source: set[str], target: set[str], kinship: bool = False) -> float:
+    return sum(max(token_score(s, t, kinship) for t in target) for s in source) / len(source)
 
 
-def _pair_score(left: set[str], right: set[str]) -> float:
-    return (_coverage(left, right) + _coverage(right, left)) / 2
+def _pair_score(left: set[str], right: set[str], kinship: bool = False) -> float:
+    return (_coverage(left, right, kinship) + _coverage(right, left, kinship)) / 2
 
 
-def similarity(left: str, right: str) -> float:
+def similarity(left: str, right: str, kinship: bool = False) -> float:
     """0~1 유사도. 클러스터링이 의존하는 유일한 함수다.
 
     내용어끼리 비교하되 낱말도 글자 단위로 견준다.
@@ -271,19 +308,21 @@ def similarity(left: str, right: str) -> float:
     if not left_list or not right_list:
         # 내용어가 없으면(짧은 잡담 등) 통문장을 글자 단위로 견준다
         return _bigram_jaccard(normalize(left), normalize(right))
-    return token_similarity(left_list, right_list)
+    return token_similarity(left_list, right_list, kinship)
 
 
-def token_similarity(left: list[str] | set[str], right: list[str] | set[str]) -> float:
+def token_similarity(
+    left: list[str] | set[str], right: list[str] | set[str], kinship: bool = False
+) -> float:
     """이미 뽑아둔 낱말끼리 견준다. 같은 질문을 반복해서 토큰화하지 않기 위해 분리했다.
 
     순서 있는 목록을 주면 앞머리까지 본다. 집합을 주면 낱말 겹침만 본다.
     """
     if not left or not right:
         return 0.0
-    score = _pair_score(set(left), set(right))
+    score = _pair_score(set(left), set(right), kinship)
     ordered = isinstance(left, list) and isinstance(right, list)
-    if ordered and score and head_affinity(list(left), list(right)) < HEAD_MIN:
+    if ordered and score and head_affinity(list(left), list(right), kinship=kinship) < HEAD_MIN:
         score *= HEAD_PENALTY
     return score
 

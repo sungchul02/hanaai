@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from agents.analyst import textutil
 from agents.analyst.cluster import (
     Cluster,
     MenuRef,
@@ -107,3 +108,34 @@ def test_겹치는_메뉴가_없으면_None() -> None:
     menus = [MenuRef(menu_id=42, title="화장실 안내", keywords=["화장실"], body="...")]
     menu, _ = find_covering_menu(cluster, menus)
     assert menu is None
+
+
+def test_부서명이_달라도_같은_주제로_묶인다() -> None:
+    """첫날 103건 중 부서 위치 질문 13건이 전부 1건짜리로 흩어졌다.
+    부서명이 서로 안 겹쳐서다. 주차 다음으로 많이 물어본 주제인데
+    표본 부족으로 통째로 빠졌고, 근거 문서에 층별 배치가 다 있는데도 답이 안 나왔다."""
+    items = [
+        QuestionItem(i, text, textutil.normalize(text), False, None)
+        for i, text in enumerate([
+            "세정과 몇 층이에요?", "축산과 몇 층인가요", "회계과 몇 층인가요",
+            "행정지원과 몇 층이에요", "청년정책과 어디예요",
+        ], 1)
+    ]
+    clusters = build_clusters(items)
+    assert len(clusters) == 1, [c.label for c in clusters]
+    assert clusters[0].size == 5
+
+
+def test_같은_실_로_끝나도_다른_주제는_안_묶인다() -> None:
+    """'실' 은 부서 접미사로 쓰지 않는다. 화장실 · 민원실 · 수유실이 전부 걸려서
+    서로 다른 주제가 뭉친다. 그 셋은 지금 제대로 갈려 있고, 합치면 더 나빠진다."""
+    items = [
+        QuestionItem(i, text, textutil.normalize(text), False, None)
+        for i, text in enumerate([
+            "화장실 어디예요?", "화장실 어디 있나요",
+            "민원실 어디예요?", "민원실 몇 시까지 해요?",
+            "수유실 어디 있어요?", "수유실 몇 층이에요",
+        ], 1)
+    ]
+    clusters = build_clusters(items)
+    assert len(clusters) == 3, [c.label for c in clusters]

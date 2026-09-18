@@ -174,9 +174,31 @@ class ContentAgent:
             fixed.append(proposal.model_copy(update={"keywords": keywords}))
         return fixed
 
-    def _verify(self, proposal: ContentProposal, questions: list[str]) -> VerifyResult:
+    def _verify(
+        self,
+        proposal: ContentProposal,
+        questions: list[str],
+        siblings: list[ContentProposal] | None = None,
+    ) -> VerifyResult:
+        """초안을 실제 매처에 넣어본다.
+
+        **같은 주제에서 함께 나온 형제 초안도 나란히 놓는다.** 이게 없으면
+        쪼갠 메뉴 하나하나가 주제 전체를 혼자 감당해야 하는 것으로 잰다.
+
+        실제로 그래서 망가졌다. 부서 위치 8건을 층별 메뉴 7개로 쪼갰더니,
+        '1층 부서 안내' 가 "세정과 몇 층이에요?"(6층) 를 못 잡는다고 미스로 잡혔고,
+        수정 요청을 받은 모델이 지시대로 세정과를 1층 키워드에 넣었다.
+        모든 층 메뉴에 모든 부서명이 들어가 전부 1.00 동점이 됐고,
+        결국 세정과 질문에 1층 안내가 "안내 완료" 로 답했다.
+
+        형제가 잡는 질문은 미스가 아니다. 운영에서도 형제와 나란히 놓이기 때문이다.
+        """
         draft = as_menu(proposal.title, proposal.body, proposal.keywords)
-        return verify_draft(draft, questions, self.existing_menus)
+        others = [
+            as_menu(sib.title, sib.body, sib.keywords, menu_id=-2 - index)
+            for index, sib in enumerate(siblings or [])
+        ]
+        return verify_draft(draft, questions, [*self.existing_menus, *others])
 
     def _revise(self, proposal: ContentProposal, result: VerifyResult) -> ContentProposal | None:
         """못 잡은 질문을 들고 다시 쓰게 한다. 고치지 못하면 None."""
@@ -224,21 +246,28 @@ class ContentAgent:
 
         by_label = {str(cluster.get("label")): cluster for cluster in clusters}
 
+        # 같은 주제에서 나온 것끼리 형제로 묶는다. 검증할 때 나란히 놓는다.
+        by_topic: dict[str, list[ContentProposal]] = {}
+        for proposal in proposals:
+            by_topic.setdefault("|".join(sorted(proposal.source_labels)), []).append(proposal)
+
         verified: list[ContentProposal] = []
         for proposal in proposals:
             matched = resolve_clusters(proposal.source_labels, by_label)
             questions = [
                 question for cluster in matched for question in (cluster.get("_questions") or [])
             ] or list(proposal.evidence.sample_questions)
+            family = by_topic.get("|".join(sorted(proposal.source_labels)), [])
+            siblings = [p for p in family if p is not proposal]
 
-            result = self._verify(proposal, questions)
+            result = self._verify(proposal, questions, siblings)
             revisions = 0
             while not result.ok and revisions < self.max_revisions:
                 revised = self._revise(proposal, result)
                 if revised is None:
                     break
                 revisions += 1
-                new_result = self._verify(revised, questions)
+                new_result = self._verify(revised, questions, siblings)
                 log.info(
                     "draft_revised",
                     title=proposal.title,

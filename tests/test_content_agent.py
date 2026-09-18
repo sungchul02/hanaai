@@ -230,3 +230,22 @@ def test_정리는_수정이_끝난_뒤에_한다() -> None:
     tidy = source.index("_tidy_placeholders")
     loop = source.index("while not result.ok")
     assert tidy > loop, "정리가 수정 루프보다 먼저 호출되고 있다"
+
+
+def test_형제_초안이_잡는_질문은_미스가_아니다() -> None:
+    """부서 위치 8건을 층별 메뉴 7개로 쪼갰더니, '1층 부서 안내' 가
+    "세정과 몇 층이에요?"(6층) 를 못 잡는다고 미스로 잡혔다.
+    수정 요청을 받은 모델이 지시대로 세정과를 1층 키워드에 넣었고,
+    결국 모든 층 메뉴에 모든 부서명이 들어가 세정과 질문에 1층 안내가 답했다."""
+    agent = ContentAgent(FakeBase(), existing_menus=[])
+    first = _proposal(
+        "1층 부서 안내", "1층에는 민원여권과, 청년정책과가 있습니다.", ["1층", "청년정책과"]
+    )
+    sixth = _proposal("6층 부서 안내", "6층에는 세정과, 회계과가 있습니다.", ["6층", "세정과"])
+    questions = ["세정과 몇 층이에요?", "청년정책과 몇 층이에요?"]
+
+    alone = agent._verify(first, questions)
+    assert alone.misses, "형제 없이 재면 세정과를 놓친 것으로 잡혀야 한다"
+
+    together = agent._verify(first, questions, siblings=[sixth])
+    assert not together.misses, "형제가 잡는 질문은 미스가 아니다"

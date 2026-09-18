@@ -76,7 +76,7 @@ class Cluster:
         """대표 질문. 중복 표현을 빼고 다양하게 보여준다."""
         picked: list[str] = []
         for item in self.items:
-            if any(textutil.similarity(item.text, seen) > 0.85 for seen in picked):
+            if any(textutil.similarity(item.text, seen, kinship=True) > 0.85 for seen in picked):
                 continue
             picked.append(item.text)
             if len(picked) >= limit:
@@ -121,7 +121,9 @@ def build_clusters(
         best_score = threshold
         for cluster in clusters:
             score = max(
-                textutil.token_similarity(tokens[item.question_id], tokens[member.question_id])
+                textutil.token_similarity(
+                    tokens[item.question_id], tokens[member.question_id], kinship=True
+                )
                 for member in cluster.items[:COMPARE_MEMBERS]
             )
             if score >= best_score:
