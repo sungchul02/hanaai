@@ -224,11 +224,15 @@ def test_승인하면_키오스크가_답하기_시작한다(
     assert after.answer_text is not None and "지하 1층" in after.answer_text
 
 
-def test_판단이_끝난_질문은_다시_분류되지_않는다(
-    session: Session, fixture_set: tuple[int, Kiosk]
+def test_분류_대상은_판단이_끝났는지로_가른다(
+    session: Session, analyzed: int, fixture_set: tuple[int, Kiosk]
 ) -> None:
     """분류를 다시 누르면 이미 답까지 만든 주제가 또 올라왔다.
-    '정할 차례' 목록이 줄지 않아서 관리자가 같은 것을 계속 봤다."""
+    '정할 차례' 목록이 줄지 않아 관리자가 같은 것을 계속 봤다.
+
+    다만 '한 번 묶였는가' 로 가르면 안 된다. 표본 부족(4건 미만)으로 판단을 못 받은
+    주제가 영영 못 자란다 — 오늘 3건, 내일 2건이 들어와도 어제 것이 빠지면 계속 2건이다.
+    """
     from agents.analyst.runner import _load_questions
 
     customer_id, _kiosk = fixture_set
@@ -236,51 +240,48 @@ def test_판단이_끝난_질문은_다시_분류되지_않는다(
         start=dt.datetime.now(dt.UTC) - dt.timedelta(hours=1),
         end=dt.datetime.now(dt.UTC) + dt.timedelta(minutes=1),
     )
-    before = len(_load_questions(session, window, customer_id))
-    assert before, "분류 대상이 있어야 한다"
-
-    # 아직 분류 대상인 주제를 하나 골라 '답변 생성됨' 으로 표시한다.
-    # 기존 메뉴가 답하는 주제는 이미 빠져 있어서 골라봐야 차이가 안 난다.
     cluster = session.scalars(
-        select(QuestionCluster).where(
-            QuestionCluster.customer_id == customer_id,
-            QuestionCluster.covered_menu_id.is_(None),
-            QuestionCluster.review_status.is_(None),
-        )
+        select(QuestionCluster)
+        .where(QuestionCluster.customer_id == customer_id)
+        .order_by(QuestionCluster.size.desc())
     ).first()
-    assert cluster is not None, "분류 대상인 주제가 있어야 한다"
+    assert cluster is not None
+
+    # 질문 번호로 견준다. 같은 문구가 여러 번 들어와 있어서 글자로 비교하면
+    # 나중에 따로 들어온 것이 섞인다.
+    def loaded() -> set[int]:
+        return {q.question_id for q in _load_questions(session, window, customer_id)}
+
+    mine = set(
+        session.scalars(
+            select(QuestionLog.question_id).where(
+                QuestionLog.cluster_id == cluster.cluster_id
+            )
+        )
+    )
+    assert mine, "이 주제에 속한 질문이 있어야 한다"
+
+    # 아직 판단 전이면 다시 본다
+    cluster.review_status = None
+    cluster.covered_menu_id = None
+    session.commit()
+    assert mine <= loaded(), "판단을 못 받은 주제는 계속 분류 대상이어야 한다"
+
+    # 답을 만들었으면 뺀다
     cluster.review_status = "answered"
     session.commit()
+    assert not (mine & loaded()), "답까지 만든 주제는 다시 올라오면 안 된다"
 
-    after = len(_load_questions(session, window, customer_id))
-    assert after == before - cluster.size, "끝난 주제의 질문만큼 줄어야 한다"
+    # 기존 메뉴가 답하는 주제도 뺀다 — 관리자가 할 일이 없다
+    cluster.review_status = None
+    cluster.covered_menu_id = _any_menu_id(session, customer_id)
+    session.commit()
+    assert not (mine & loaded()), "기존 메뉴가 답하는 주제도 다시 올라오면 안 된다"
 
 
-def test_판단_못_받은_주제는_다시_본다(
-    session: Session, fixture_set: tuple[int, Kiosk]
-) -> None:
-    """표본 부족(4건 미만)으로 판단을 못 받은 주제를 빼면 영영 못 자란다.
-    오늘 3건, 내일 2건이 들어와도 어제 것이 빠지면 계속 2건이다."""
-    from agents.analyst.runner import _load_questions
-
-    customer_id, _ = fixture_set
-    window = Window(
-        start=dt.datetime.now(dt.UTC) - dt.timedelta(hours=1),
-        end=dt.datetime.now(dt.UTC) + dt.timedelta(minutes=1),
-    )
-    cluster = session.scalars(
-        select(QuestionCluster).where(
-            QuestionCluster.customer_id == customer_id,
-            QuestionCluster.review_status.is_(None),
-        )
+def _any_menu_id(session: Session, customer_id: int) -> int:
+    menu = session.scalars(
+        select(CmsMenu).where(CmsMenu.customer_id == customer_id)
     ).first()
-    if cluster is None:
-        return  # 이 픽스처에는 판단 못 받은 주제가 없다
-    texts = {
-        row.question_text
-        for row in session.scalars(
-            select(QuestionLog).where(QuestionLog.cluster_id == cluster.cluster_id)
-        )
-    }
-    loaded = {q.question_text for q in _load_questions(session, window, customer_id)}
-    assert texts <= loaded, "판단을 못 받은 주제는 계속 분류 대상이어야 한다"
+    assert menu is not None
+    return menu.menu_id
