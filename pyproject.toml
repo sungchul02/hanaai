@@ -45,10 +45,17 @@ python_version = "3.11"
 strict = true
 plugins = []
 exclude = ["^db/migrations/versions/"]
+# db/ 는 패키지가 아니라 SQL·시드 데이터 디렉터리다. 네임스페이스로만 읽는다.
+explicit_package_bases = true
+mypy_path = "."
 
+# 테스트는 가짜 객체와 monkeypatch 를 쓴다. 여기까지 strict 를 강요하면
+# 검증하려는 내용보다 타입 시중드는 코드가 길어진다.
 [[tool.mypy.overrides]]
 module = ["tests.*"]
 strict = false
+disallow_untyped_defs = false
+disable_error_code = ["attr-defined", "no-untyped-def"]
 
 # anthropic SDK 는 선택 의존성이다. 없어도 claude-cli 백엔드로 전부 동작해야 한다.
 [[tool.mypy.overrides]]

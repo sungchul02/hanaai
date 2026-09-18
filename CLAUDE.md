@@ -14,8 +14,8 @@ pip install -e ".[dev]"
 cp .env.example .env
 
 alembic upgrade head
-python scripts/seed.py
-python scripts/simulate_questions.py --days 7 --per-day 55 --reset
+python scripts/seed.py                  # 천안시청 · 키오스크 · 근거 문서 (CMS 는 비어 있다)
+python scripts/ask.py --repeat 3        # 예상 질문을 실제 응답 경로로 던진다
 
 uvicorn services.ops_api.main:app   --port 8000 --reload   # http://localhost:8000/
 uvicorn services.kiosk_api.main:app --port 8001 --reload   # http://localhost:8001/
@@ -68,6 +68,18 @@ HANAAI_DATABASE_URL=postgresql+psycopg://hanaai:hanaai@localhost:5432/hanaai_tes
 **묶기 유사도는 `textutil.similarity()` 하나만 본다.** 임베딩으로 갈아끼울 때
 그 함수만 바꾸면 되도록 유지한다.
 
+**근거 조각도 메뉴도 '사용자가 따로 묻는 단위' 로 쪼갠다.** 조각이 곧 답변의 단위다.
+'주차 안내' 한 덩어리에 면수·시간·요금·결제를 담았더니, 요금만 묻는 사람에게도
+344면 이야기부터 통째로 읽혔다. 요금과 운영시간은 따로 묻고, 지상/지하 면수는 안 묻는다.
+
+**쪼갠 메뉴에 옆 메뉴 이야기를 쓰지 않는다.** '주차장 운영시간' 에
+"주차 요금은 (확인 후 입력 필요)" 라고 쓰면 안 된다. 요금은 모르는 게 아니라
+다른 메뉴가 다룬다. `(확인 후 입력 필요)` 는 **근거 문서 어디에도 없는 사실**에만 쓴다.
+
+**같은 제목의 메뉴를 두 개 만들지 않는다.** 승인할 때마다 새 메뉴를 넣었더니
+'증명서 발급 수수료' 가 네 개까지 늘었고, 키오스크는 그중 하나만 답했다.
+`review.approve` 가 `_find_duplicate` 로 먼저 확인하고 교체/합치기/별도를 관리자에게 묻는다.
+
 **커버리지는 추측보다 기록을 믿는다.** 실제로 답이 나간 `matched_menu_id` 가 1순위고,
 키워드 유사도는 답한 적 없을 때만 쓴다. 둘을 섞으면 응답 로직과 어긋난다.
 
@@ -119,11 +131,28 @@ DB 도 파일도 건드리지 않는다. Agent 에게 도구를 늘려주고 싶
 
 ## 시뮬레이터
 
-실제 키오스크가 붙기 전까지 `scripts/simulate_questions.py` 가 데이터를 만든다.
+실제 키오스크가 붙기 전까지 `scripts/ask.py` 가 예상 질문을 던져 데이터를 만든다.
+질문 목록은 `db/seeds/expected_questions.py` 에 있고, DB 에 직접 넣지 않고
+`services.kiosk_api.service.ask()` 를 그대로 부른다. 직접 INSERT 하면 매칭 결과를
+내가 지어내게 되어 '실제로 도는지' 를 확인할 수 없다.
+처음부터 다시 하려면 `python scripts/reset_data.py --yes`.
 CMS 에 없는 주제(주차·와이파이·수유실)를 일부러 많이 물어보게 하므로,
 **분석이 그걸 못 찾으면 분석이 틀린 것**이다.
 
 ## 현재 상태
+
+관리자 화면은 **할 일 중심 + 탭** 구조다.
+맨 위는 지금 눌러야 할 것(승인 대기 · 문서 보강 필요 · 중복 메뉴 · 미분석 질문)만 센다.
+`질문 297건` 같이 관리자가 할 수 있는 일이 없는 숫자는 [분석 이력] 탭으로 내렸다.
+숫자를 하나 더 올리고 싶어지면, 그걸 보고 관리자가 무엇을 누를지 먼저 답해야 한다.
+
+| 탭 | 내용 |
+|---|---|
+| 할 일 | 승인 대기 · 문서 보강 필요 · 중복 메뉴 |
+| CMS 메뉴 | 메뉴 목록과 직접 작성/수정 |
+| 질문 | 많이 나온 주제(조치 필요한 것부터) · 최근 질문 |
+| 근거 문서 | AI 가 사실로 쓰는 원본 |
+| 분석 이력 | 마지막 분석이 한 일 · 실행 이력과 비용 · 질문 통계 |
 
 | 구간 | 상태 |
 |---|---|
