@@ -21,7 +21,15 @@ from agents.analyst.generation import run_analysis
 from agents.analyst.generator import PassthroughGenerator
 from agents.analyst.runner import Window
 from services.common.db import get_engine, get_sessionmaker
-from services.common.models import CmsMenu, ContentProposal, Customer, Kiosk, QuestionLog, Site
+from services.common.models import (
+    CmsMenu,
+    ContentProposal,
+    Customer,
+    Kiosk,
+    QuestionCluster,
+    QuestionLog,
+    Site,
+)
 from services.kiosk_api import service
 
 pytestmark = pytest.mark.db
@@ -214,3 +222,60 @@ def test_승인하면_키오스크가_답하기_시작한다(
     assert after.answer_source == "cms_menu"
     assert after.matched_menu_id == menu.menu_id
     assert after.answer_text is not None and "지하 1층" in after.answer_text
+
+
+def test_판단이_끝난_질문은_다시_분류되지_않는다(
+    session: Session, fixture_set: tuple[int, Kiosk]
+) -> None:
+    """분류를 다시 누르면 이미 답까지 만든 주제가 또 올라왔다.
+    '정할 차례' 목록이 줄지 않아서 관리자가 같은 것을 계속 봤다."""
+    from agents.analyst.runner import _load_questions
+
+    customer_id, _kiosk = fixture_set
+    window = Window(
+        start=dt.datetime.now(dt.UTC) - dt.timedelta(hours=1),
+        end=dt.datetime.now(dt.UTC) + dt.timedelta(minutes=1),
+    )
+    before = len(_load_questions(session, window, customer_id))
+    assert before, "분류 대상이 있어야 한다"
+
+    # 첫 주제를 '답변 생성됨' 으로 표시한다
+    cluster = session.scalars(
+        select(QuestionCluster).where(QuestionCluster.customer_id == customer_id)
+    ).first()
+    assert cluster is not None
+    cluster.review_status = "answered"
+    session.commit()
+
+    after = len(_load_questions(session, window, customer_id))
+    assert after == before - cluster.size, "끝난 주제의 질문만큼 줄어야 한다"
+
+
+def test_판단_못_받은_주제는_다시_본다(
+    session: Session, fixture_set: tuple[int, Kiosk]
+) -> None:
+    """표본 부족(4건 미만)으로 판단을 못 받은 주제를 빼면 영영 못 자란다.
+    오늘 3건, 내일 2건이 들어와도 어제 것이 빠지면 계속 2건이다."""
+    from agents.analyst.runner import _load_questions
+
+    customer_id, _ = fixture_set
+    window = Window(
+        start=dt.datetime.now(dt.UTC) - dt.timedelta(hours=1),
+        end=dt.datetime.now(dt.UTC) + dt.timedelta(minutes=1),
+    )
+    cluster = session.scalars(
+        select(QuestionCluster).where(
+            QuestionCluster.customer_id == customer_id,
+            QuestionCluster.review_status.is_(None),
+        )
+    ).first()
+    if cluster is None:
+        return  # 이 픽스처에는 판단 못 받은 주제가 없다
+    texts = {
+        row.question_text
+        for row in session.scalars(
+            select(QuestionLog).where(QuestionLog.cluster_id == cluster.cluster_id)
+        )
+    }
+    loaded = {q.question_text for q in _load_questions(session, window, customer_id)}
+    assert texts <= loaded, "판단을 못 받은 주제는 계속 분류 대상이어야 한다"

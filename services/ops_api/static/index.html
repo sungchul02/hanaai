@@ -131,6 +131,20 @@
   tr.pick:hover td { background: #f8fafc; }
   input[type=checkbox] { width: 15px; height: 15px; vertical-align: -2px; }
 
+  /* 로딩 창 — 화면을 덮어 다른 버튼이 안 눌리게 한다.
+     인라인 배너로 뒀더니 분류 버튼이 연달아 눌려 분석이 네 개 쌓였다. */
+  .veil { position: fixed; inset: 0; background: rgba(28, 35, 48, .45);
+          display: flex; align-items: center; justify-content: center; z-index: 50; }
+  .veil .box2 { background: var(--panel); border-radius: 12px; padding: 30px 34px;
+                max-width: 440px; text-align: center; box-shadow: 0 8px 40px rgba(0,0,0,.2); }
+  .veil h3 { margin: 16px 0 0; font-size: 18px; }
+  .veil p { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+  .veil .el { margin-top: 14px; font-family: var(--mono); font-size: 13px; color: var(--brand); }
+  .spin { width: 34px; height: 34px; margin: 0 auto; border-radius: 50%;
+          border: 3px solid var(--line); border-top-color: var(--brand);
+          animation: turn .9s linear infinite; }
+  @keyframes turn { to { transform: rotate(360deg); } }
+
   .cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
           padding: 12px 14px; }
@@ -931,17 +945,37 @@ function renderRuns() {
 // 화면 어디서 부르든 막아야 한다.
 let busy = null;
 
-function setBusy(label) {
-  busy = label;
+let busyAt = 0;
+let busyTimer = null;
+
+function setBusy(label, note) {
+  busy = label ? { label, note: note || "" } : null;
+  busyAt = Date.now();
+  clearInterval(busyTimer);
+  // 몇 분 걸리는 일이라 멈춘 것처럼 보인다. 흐른 시간을 보여준다.
+  busyTimer = busy ? setInterval(tickElapsed, 1000) : null;
   render();
 }
 
-function busyBanner() {
-  return busy ? `<div class="now-card" style="margin-bottom:16px">
-      <div class="step">진행 중</div>
-      <h3>${esc(busy)}</h3>
-      <p>끝나면 화면이 저절로 바뀝니다. 창을 닫지 마세요.</p>
-    </div>` : "";
+function tickElapsed() {
+  const el = $("elapsed");
+  if (!el) return;
+  const sec = Math.floor((Date.now() - busyAt) / 1000);
+  el.textContent = `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")} 경과`;
+}
+
+// 화면을 덮는다. 인라인 배너로 뒀더니 분류 버튼이 연달아 눌려 분석이 네 개 쌓였다.
+function busyVeil() {
+  if (!busy) return "";
+  return `<div class="veil">
+      <div class="box2">
+        <div class="spin"></div>
+        <h3>${esc(busy.label)}</h3>
+        <p>${esc(busy.note)}</p>
+        <div class="el" id="elapsed">00:00 경과</div>
+        <p style="margin-top:14px">끝나면 화면이 저절로 바뀝니다. 창을 닫지 마세요.</p>
+      </div>
+    </div>`;
 }
 
 // 1단계 — 싸다. 묶고 판단하고 갈래를 나눌 뿐 답변은 안 만든다.
@@ -954,7 +988,8 @@ async function runTriage() {
       `새로 분류하면 이 기록은 [이력]에서만 볼 수 있게 됩니다.\n` +
       `그래도 새로 분류할까요?`)) { go("pick"); return; }
   }
-  setBusy("질문을 분류하고 있습니다");
+  setBusy("질문을 분류하고 있습니다",
+          "비슷한 질문을 묶고, AI가 안내할 가치를 판단합니다. 20초쯤 걸립니다.");
   try {
     const out = await api("/v1/analysis/triage", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -973,14 +1008,15 @@ async function runTriage() {
     );
     if (out.kept) { view = "pick"; }
   } catch (e) { showError(e.message); }
-  finally { busy = null; render(); }
+  finally { setBusy(null); }
 }
 
 // 2단계 — 비싸다. 고른 주제만 근거를 찾고 답변을 만든다.
 async function runGeneration() {
   if (busy) return;
   if (!state.run) { showError("먼저 질문 분류를 실행하세요."); return; }
-  setBusy("답변을 만들고 있습니다 (몇 분 걸립니다)");
+  setBusy("답변을 만들고 있습니다",
+          "근거 문서를 찾아 안내문을 쓰고, 실제 매처로 검증합니다. 주제 수에 따라 몇 분 걸립니다.");
   try {
     const out = await api(`/v1/analysis/${state.run.analysis_run_id}/generate`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
@@ -1003,7 +1039,7 @@ async function runGeneration() {
     alert(lines.join("\n"));
     if (out.proposals_made) { view = "drafts"; }
   } catch (e) { showError(e.message); }
-  finally { busy = null; render(); }
+  finally { setBusy(null); }
 }
 
 // ------------------------------------------------------------------ 데이터 적재
@@ -1016,7 +1052,7 @@ const SCREENS = {
 
 function render() {
   renderNav();
-  $("screen").innerHTML = busyBanner() + (SCREENS[view] || renderHome)();
+  $("screen").innerHTML = (SCREENS[view] || renderHome)() + busyVeil();
   if (view === "drafts") loadEvidenceForCurrent();
 }
 

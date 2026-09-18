@@ -41,13 +41,19 @@ _TODO_SQL = text(
           WHERE customer_id = :customer_id AND status = 'published'
           GROUP BY title HAVING count(*) > 1
       ) dup)                                                                AS duplicate_menus,
-      -- 답한 적 없는 질문. 분석을 한 번도 안 돌렸으면 여기가 크게 잡힌다.
+      -- 아직 판단이 끝나지 않은 질문. 다음 분류에 들어갈 것과 같은 기준이어야 한다.
+      -- '묶였는가' 로 세면 표본 부족으로 판단을 못 받은 주제가 0건으로 보여서,
+      -- 관리자가 더 쌓아야 할지 판단할 수 없다. (agents/analyst/runner._load_questions 참조)
       (SELECT count(*) FROM question_log q
         JOIN kiosk k ON k.kiosk_id = q.kiosk_id
         JOIN site s ON s.site_id = k.site_id
+        LEFT JOIN question_cluster c ON c.cluster_id = q.cluster_id
         WHERE s.customer_id = :customer_id
           AND q.asked_at >= now() - interval '7 days'
-          AND q.cluster_id IS NULL)                                         AS unanalyzed,
+          AND c.covered_menu_id IS NULL
+          AND (c.review_status IS NULL
+               OR c.review_status NOT IN ('approved', 'rejected', 'answered')))
+                                                                            AS unanalyzed,
       -- 초안 품질 지표. 손보지 않고 그대로 쓴 비율이 높을수록 프롬프트가 잘 맞는 것이다.
       (SELECT count(*) FROM content_proposal
         WHERE customer_id = :customer_id AND status = 'approved')           AS approved_as_is,

@@ -100,18 +100,45 @@ _KIOSKS_OF_CUSTOMER = text(
 )
 
 
+# 판단이 끝난 주제. 여기 속한 질문은 다시 분류하지 않는다.
+DECIDED = ("approved", "rejected", "answered")
+
+
 def _load_questions(session: Session, window: Window, customer_id: int) -> list[QuestionLog]:
+    """아직 판단이 끝나지 않은 질문만 가져온다.
+
+    전에는 구간 안의 질문을 전부 다시 묶었다. 그래서 분류를 다시 누르면
+    이미 답까지 만든 주제가 또 올라왔고, '정할 차례' 목록이 줄지 않았다.
+
+    다만 '한 번 묶였다' 를 기준으로 삼으면 안 된다. 표본 부족(4건 미만)으로
+    판단을 못 받은 주제가 영영 못 자란다 — 오늘 3건, 내일 2건이 들어와도
+    어제 것이 빠지면 계속 2건이다. 그래서 **판단이 끝났는지**로 가른다.
+      · approved / rejected / answered  → 끝났다. 뺀다.
+      · 기존 메뉴가 이미 답하는 주제      → 끝났다. 뺀다. 관리자가 할 일이 없다.
+      · 그 밖(표본 부족 등)             → 아직이다. 다시 본다.
+    """
     kiosk_ids = [
         row[0] for row in session.execute(_KIOSKS_OF_CUSTOMER, {"customer_id": customer_id})
     ]
     if not kiosk_ids:
         return []
+    decided = (
+        select(QuestionCluster.cluster_id)
+        .where(
+            QuestionCluster.review_status.in_(DECIDED)
+            # 기존 메뉴가 이미 답하는 주제도 끝난 것이다. 관리자가 할 일이 없다.
+            | QuestionCluster.covered_menu_id.isnot(None)
+        )
+        .scalar_subquery()
+    )
     stmt = (
         select(QuestionLog)
         .where(
             QuestionLog.asked_at >= window.start,
             QuestionLog.asked_at < window.end,
             QuestionLog.kiosk_id.in_(kiosk_ids),
+            # 이미 판단이 끝난 주제의 질문은 뺀다
+            QuestionLog.cluster_id.is_(None) | QuestionLog.cluster_id.notin_(decided),
         )
         # 순서를 고정한다. 탐욕적 클러스터링은 입력 순서에 결과가 의존한다.
         .order_by(QuestionLog.asked_at, QuestionLog.question_id)
