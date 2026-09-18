@@ -254,6 +254,10 @@ class TodoSummary(BaseModel):
     needs_document: int
     duplicate_menus: int
     unanalyzed: int
+    # 승인된 제안 중 AI 초안을 그대로 쓴 것과 손본 것.
+    # 이 비율이 초안 품질 지표다. 손보는 비율이 높아지면 프롬프트를 고쳐야 한다.
+    approved_as_is: int = 0
+    approved_edited: int = 0
 
 
 class RunRow(BaseModel):

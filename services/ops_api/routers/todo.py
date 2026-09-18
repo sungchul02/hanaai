@@ -47,7 +47,12 @@ _TODO_SQL = text(
         JOIN site s ON s.site_id = k.site_id
         WHERE s.customer_id = :customer_id
           AND q.asked_at >= now() - interval '7 days'
-          AND q.cluster_id IS NULL)                                         AS unanalyzed
+          AND q.cluster_id IS NULL)                                         AS unanalyzed,
+      -- 초안 품질 지표. 손보지 않고 그대로 쓴 비율이 높을수록 프롬프트가 잘 맞는 것이다.
+      (SELECT count(*) FROM content_proposal
+        WHERE customer_id = :customer_id AND status = 'approved')           AS approved_as_is,
+      (SELECT count(*) FROM content_proposal
+        WHERE customer_id = :customer_id AND status = 'edited')             AS approved_edited
     """
 )
 

@@ -102,21 +102,46 @@ def check_duplicate(proposal_id: int, session: DbSession) -> DuplicateHint | Non
     )
 
 
+def _normalize(value: str) -> str:
+    """공백 차이만으로 '고쳤다' 고 기록하지 않기 위한 다듬기.
+
+    화면이 입력칸 값을 보낼 때 앞뒤 공백이나 줄바꿈이 섞인다. 그건 관리자가
+    내용을 고친 것이 아니다.
+    """
+    return " ".join(value.split())
+
+
+def _differs(proposal: ContentProposal, title: str, body: str, keywords: list[str]) -> bool:
+    """관리자가 AI 초안에서 실제로 무언가를 바꿨는가."""
+    if _normalize(title) != _normalize(proposal.title):
+        return True
+    if _normalize(body) != _normalize(proposal.body):
+        return True
+    # 키워드는 순서가 바뀐 것을 수정으로 보지 않는다. 매칭 결과가 같기 때문이다.
+    return sorted(_normalize(k) for k in keywords) != sorted(
+        _normalize(k) for k in proposal.keywords
+    )
+
+
 @router.post("/proposals/{proposal_id}/approve", response_model=MenuRow)
 def approve(proposal_id: int, decision: ApproveIn, session: DbSession) -> CmsMenu:
     """[추가하기]. 승인 즉시 cms_menu 에 들어가고 키오스크가 답하기 시작한다.
 
-    title/body/keywords 를 함께 주면 '수정 후 추가' 로 보고 status 를 edited 로 남긴다.
-    AI 초안을 그대로 썼는지 손봤는지가 곧 품질 지표가 된다.
+    AI 초안을 그대로 썼으면 approved, 손봤으면 edited 로 남긴다.
+    이 둘의 비율이 곧 초안 품질 지표다. 손보는 비율이 높아지면 프롬프트를 고쳐야 한다.
     """
     proposal = _load(session, proposal_id)
     if proposal.status not in REVIEWABLE:
         raise HTTPException(status.HTTP_409_CONFLICT, f"이미 처리된 제안이다: {proposal.status}")
 
-    edited = any(value is not None for value in (decision.title, decision.body, decision.keywords))
     title = decision.title or proposal.title
     body = decision.body or proposal.body
     keywords = decision.keywords if decision.keywords is not None else list(proposal.keywords)
+
+    # 값이 왔는지가 아니라 값이 달라졌는지를 본다.
+    # 화면은 입력칸 값을 항상 보내므로, 왔는지만 보면 전부 edited 가 된다.
+    # 실제로 그랬고 26건이 모두 edited 로 기록돼 품질 지표가 무의미해졌다.
+    edited = _differs(proposal, title, body, keywords)
 
     existing = _find_duplicate(session, proposal.customer_id, title, decision.duplicate_of)
     if existing is not None and decision.on_duplicate != "new":
