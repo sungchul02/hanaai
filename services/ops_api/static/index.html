@@ -221,6 +221,7 @@ const NAV = [
   ["questions", "질문"],
   ["docs", "근거 문서"],
   ["runs", "이력"],
+  ["settings", "설정"],
 ];
 let view = "home";
 let state = {};   // todo · run · report 등 화면이 공유하는 최신 상태
@@ -951,6 +952,100 @@ function renderRuns() {
       `<div class="card"><div class="l">${l}</div><div class="v ${c}">${v}</div></div>`).join("")}</div>`;
 }
 
+// ------------------------------------------------------------------ 설정
+//
+// 임계값이 코드 스무 곳에 흩어져 있었다. 기관마다 맞는 값이 다르다 —
+// 질문이 하루 수십 건인 곳과 수천 건인 곳이 같은 기준을 쓸 이유가 없다.
+//
+// 숫자만 보여주면 관리자가 무엇을 만지는지 모른 채 건드린다.
+// 그래서 항목마다 '무엇을 정하는가' 와 '올리면/내리면 어떻게 되는가' 를 함께 둔다.
+
+function renderSettings() {
+  const out = state.settings;
+  if (!out) return `<h2>설정</h2><div class="panel"><div class="empty">불러오는 중…</div></div>`;
+  const changed = out.groups.reduce(
+    (n, g) => n + g.knobs.filter(k => k.changed).length, 0);
+
+  return `<h2>동작 설정
+      <span class="sub muted">코드를 고치지 않고 바꿉니다. 이 고객사에만 적용됩니다</span></h2>
+    <div class="box" style="margin:0 0 14px">
+      ${changed
+        ? `<b>${changed}개 항목이 기본값과 다릅니다.</b>
+           <span class="muted">바꾼 항목은 파란 점으로 표시됩니다.</span>`
+        : `<b>전부 기본값입니다.</b>
+           <span class="muted">바꾸기 전에 아래 설명을 읽어보세요.</span>`}
+      <button style="float:right" onclick="resetSettings()">전부 기본값으로</button>
+    </div>` +
+    out.groups.map(g => `
+      <div class="panel" style="margin-bottom:14px">
+        <table><tbody>
+          <tr class="grouphead"><td colspan="2">${esc(g.group)}</td></tr>
+          ${g.knobs.map(k => knobRow(k)).join("")}
+        </tbody></table>
+      </div>`).join("");
+}
+
+function knobRow(k) {
+  const mark = k.changed
+    ? `<span class="tag ai" title="기본값 ${k.default}">바꿈</span>` : "";
+  return `<tr>
+    <td style="width:46%">
+      <b>${esc(k.label)}</b> ${mark}
+      <div class="muted" style="margin-top:4px">${esc(k.what)}</div>
+      <div class="muted" style="margin-top:6px">
+        ▲ 올리면 — ${esc(k.higher)}<br>
+        ▼ 내리면 — ${esc(k.lower)}
+      </div>
+    </td>
+    <td>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="number" id="k_${k.key}" value="${k.value}"
+               min="${k.minimum}" max="${k.maximum}" step="${k.step}"
+               style="width:90px;font-family:var(--mono)">
+        <button onclick="saveKnob('${k.key}')">저장</button>
+        ${k.changed ? `<button onclick="resetKnob('${k.key}')">되돌리기</button>` : ""}
+      </div>
+      <div class="muted" style="margin-top:5px">
+        기본값 ${k.default} · 범위 ${k.minimum} ~ ${k.maximum}
+      </div>
+    </td>
+  </tr>`;
+}
+
+async function saveKnob(key) {
+  const el = $("k_" + key);
+  if (!el) return;
+  await patchSettings({ [key]: Number(el.value) },
+                      "저장했습니다. 다음 분석부터 적용됩니다");
+}
+
+async function resetKnob(key) {
+  await patchSettings({ [key]: null }, "기본값으로 되돌렸습니다");
+}
+
+async function resetSettings() {
+  if (!confirm("모든 항목을 기본값으로 되돌립니다. 계속할까요?")) return;
+  try {
+    state.settings = await api("/v1/settings/reset", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ customer_id: Number(cid()), values: {} })
+    });
+    render();
+    flash("전부 기본값으로 되돌렸습니다");
+  } catch (e) { showError(e.message); }
+}
+
+async function patchSettings(values, note) {
+  try {
+    state.settings = await api("/v1/settings", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ customer_id: Number(cid()), values })
+    });
+    render();
+    flash(note);
+  } catch (e) { showError(e.message); }
+}
+
 // ------------------------------------------------------------------ 실행
 
 // 실행 중에는 다시 못 누르게 막는다.
@@ -1068,6 +1163,7 @@ const SCREENS = {
   home: renderHome, pick: renderPick, drafts: renderDrafts,
   gaps: renderGaps, dups: renderDups,
   menus: renderMenus, questions: renderQuestions, docs: renderDocs, runs: renderRuns,
+  settings: renderSettings,
 };
 
 function render() {
@@ -1114,6 +1210,7 @@ async function loadAll() {
     if (view === "docs") state.documents = await api(`/v1/documents?customer_id=${cid()}`);
     if (view === "dups") state.dups = await api(`/v1/menus/duplicates?customer_id=${cid()}`);
     if (view === "gaps") state.topics = await api(`/v1/topics?customer_id=${cid()}&limit=40`);
+    if (view === "settings") state.settings = await api(`/v1/settings?customer_id=${cid()}`);
     if (view === "runs") {
       const [summary, list] = await Promise.all([
         api(`/v1/dashboard/summary?customer_id=${cid()}`),

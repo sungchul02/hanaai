@@ -13,10 +13,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from agents.analyst import textutil
+from agents.analyst.tuning import DEFAULT_TUNING
 from services.common.models import DocumentChunk, SourceDocument
 
 # 이보다 관련이 낮으면 근거로 쓰지 않는다. 억지로 붙이면 엉뚱한 안내가 나간다.
-MIN_SCORE = 0.18
+MIN_SCORE = DEFAULT_TUNING.evidence_min_score
 
 
 @dataclass
@@ -140,6 +141,7 @@ def search_many(
     queries: list[str],
     limit: int = 5,
     expand_documents: bool = True,
+    min_score: float = MIN_SCORE,
 ) -> list[Evidence]:
     """여러 표현으로 찾아서 합친다.
 
@@ -159,7 +161,7 @@ def search_many(
     """
     best: dict[int, Evidence] = {}
     for query in queries:
-        for evidence in search(session, customer_id, query, limit=limit):
+        for evidence in search(session, customer_id, query, limit=limit, min_score=min_score):
             kept = best.get(evidence.chunk_id)
             if kept is None or evidence.score > kept.score:
                 best[evidence.chunk_id] = evidence

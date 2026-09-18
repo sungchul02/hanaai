@@ -21,13 +21,14 @@ import structlog
 
 from agents.analyst import textutil
 from agents.analyst.placeholder import clean_body, prune_keywords
+from agents.analyst.tuning import DEFAULT_TUNING
 from agents.analyst.verify import TARGET_COVERAGE, VerifyResult, as_menu, verify_draft
 from agents.contracts.proposal import ContentProposal
 from services.common.models import CmsMenu
 
 log = structlog.get_logger(__name__)
 
-MAX_REVISIONS = 2
+MAX_REVISIONS = DEFAULT_TUNING.max_revisions
 
 
 class Completer(Protocol):
@@ -122,10 +123,12 @@ class ContentAgent:
         base: BaseGenerator,
         existing_menus: list[CmsMenu] | None = None,
         max_revisions: int = MAX_REVISIONS,
+        target_coverage: float = TARGET_COVERAGE,
     ) -> None:
         self.base = base
         self.existing_menus = existing_menus or []
         self.max_revisions = max_revisions
+        self.target_coverage = target_coverage
         self.name = f"{base.name}+agent"
         self.last_usage: dict[str, Any] | None = None
         self.last_errors: list[str] = []
@@ -198,7 +201,10 @@ class ContentAgent:
             as_menu(sib.title, sib.body, sib.keywords, menu_id=-2 - index)
             for index, sib in enumerate(siblings or [])
         ]
-        return verify_draft(draft, questions, [*self.existing_menus, *others])
+        return verify_draft(
+            draft, questions, [*self.existing_menus, *others],
+            target=self.target_coverage,
+        )
 
     def _revise(self, proposal: ContentProposal, result: VerifyResult) -> ContentProposal | None:
         """못 잡은 질문을 들고 다시 쓰게 한다. 고치지 못하면 None."""

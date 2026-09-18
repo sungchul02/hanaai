@@ -151,7 +151,8 @@ content_proposal 26건 (pending_review)
 | LLM 백엔드 교체 | `agents/analyst/generator.py` **한 파일.** runner도 API도 어느 백엔드인지 모른다 |
 | 검색을 임베딩으로 | `agents/knowledge/retriever.py` 의 `search()` **안쪽만.** 부르는 쪽은 이 함수만 본다 |
 | 질문 묶기 정확도 | `agents/analyst/textutil.py` 의 `similarity()` **하나만.** 나머지는 이 함수를 본다 |
-| 매칭 임계값 | `services/kiosk_api/service.py` 의 `STRONG_MATCH` / `WEAK_MATCH` |
+| **동작 조정** | 코드를 고칠 필요 없다. 관리자 콘솔 **[설정]** 탭에서 바꾼다 (고객사별 저장) |
+| 조정 항목 추가 | `agents/analyst/tuning.py` 의 `KNOBS` 에 한 줄. 화면·검증·저장이 따라온다 |
 | 스키마 변경 | `db/migrations/sql/*.sql` 에 새 파일 + `versions/` 에 리비전. `models.py`는 그걸 따라간다 |
 | 화면 | `services/ops_api/static/index.html` (관리자), `services/kiosk_api/static/index.html` (키오스크) |
 

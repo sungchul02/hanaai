@@ -356,3 +356,39 @@ class RunGenerationOut(BaseModel):
     proposals_made: int
     stats: dict[str, int]
     error: str | None = None
+
+
+class KnobRow(BaseModel):
+    """조정값 하나. 값보다 설명이 중요하다 — 무엇을 만지는지 알고 바꿔야 한다."""
+
+    key: str
+    label: str
+    value: float
+    default: float
+    minimum: float
+    maximum: float
+    step: float
+    integer: bool
+    what: str
+    higher: str
+    lower: str
+    changed: bool
+
+
+class SettingsGroup(BaseModel):
+    group: str
+    knobs: list[KnobRow]
+
+
+class SettingsOut(BaseModel):
+    customer_id: int
+    groups: list[SettingsGroup]
+
+
+class SettingsIn(BaseModel):
+    """값을 바꾼다. null 을 주면 그 항목만 기본값으로 되돌린다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    customer_id: int
+    values: dict[str, float | None] = {}

@@ -12,11 +12,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from agents.analyst.tuning import DEFAULT_TUNING
 from services.common.models import CmsMenu
 from services.kiosk_api.service import find_answer
 
 # 대상 질문의 이만큼은 잡아야 쓸 만한 메뉴로 본다.
-TARGET_COVERAGE = 0.8
+TARGET_COVERAGE = DEFAULT_TUNING.target_coverage
 
 
 @dataclass
@@ -27,6 +28,7 @@ class VerifyResult:
     by_draft: int  # 이 초안이 답하게 되는 질문
     by_existing: int  # 기존 메뉴가 이미 답하던 질문
     misses: list[str] = field(default_factory=list)  # 초안을 넣어도 여전히 못 잡는 질문
+    target: float = TARGET_COVERAGE  # 이만큼 잡으면 더 안 고친다
 
     @property
     def covered(self) -> int:
@@ -38,7 +40,7 @@ class VerifyResult:
 
     @property
     def ok(self) -> bool:
-        return self.coverage >= TARGET_COVERAGE
+        return self.coverage >= self.target
 
     def summary(self) -> str:
         return (
@@ -68,6 +70,7 @@ def verify_draft(
     questions: list[str],
     existing: list[CmsMenu],
     miss_limit: int = 12,
+    target: float = TARGET_COVERAGE,
 ) -> VerifyResult:
     """초안을 기존 메뉴들과 함께 놓고 질문을 돌려본다.
 
@@ -91,5 +94,6 @@ def verify_draft(
             by_existing += 1
 
     return VerifyResult(
-        total=len(questions), by_draft=by_draft, by_existing=by_existing, misses=misses
+        total=len(questions), by_draft=by_draft, by_existing=by_existing,
+        misses=misses, target=target,
     )

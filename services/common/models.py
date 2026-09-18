@@ -89,6 +89,8 @@ class Customer(Base):
     code: Mapped[str] = mapped_column(Text, unique=True)
     name: Mapped[str] = mapped_column(Text)
     created_at: Mapped[dt.datetime] = mapped_column(TZDateTime, server_default=_NOW)
+    # 고객사별 조정값. 등록부는 agents/analyst/tuning.py
+    tuning: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'"))
 
     sites: Mapped[list[Site]] = relationship(back_populates="customer")
 

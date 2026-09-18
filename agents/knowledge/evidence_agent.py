@@ -22,6 +22,7 @@ from typing import Any, Protocol
 import structlog
 from sqlalchemy.orm import Session
 
+from agents.analyst.tuning import DEFAULT_TUNING, Tuning
 from agents.knowledge.retriever import Evidence, search_many
 
 log = structlog.get_logger(__name__)
@@ -134,14 +135,24 @@ class EvidenceAgent:
 
     name = "evidence-agent"
 
-    def __init__(self, session: Session, customer_id: int, completer: Completer | None) -> None:
+    def __init__(
+        self,
+        session: Session,
+        customer_id: int,
+        completer: Completer | None,
+        tuning: Tuning = DEFAULT_TUNING,
+    ) -> None:
         self.session = session
         self.customer_id = customer_id
         self.completer = completer
+        self.tuning = tuning
 
     def collect(self, topic: str, questions: list[str]) -> EvidenceReport:
         """명령 하나를 처리한다. topic 은 상위가 지정한 조사 대상."""
-        candidates = search_many(self.session, self.customer_id, [topic, *questions[:4]])
+        candidates = search_many(
+            self.session, self.customer_id, [topic, *questions[:4]],
+            limit=self.tuning.evidence_limit, min_score=self.tuning.evidence_min_score,
+        )
         if not candidates:
             return EvidenceReport(
                 topic=topic,

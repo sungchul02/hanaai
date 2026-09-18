@@ -26,6 +26,7 @@ from typing import Any, Protocol
 import structlog
 from sqlalchemy.orm import Session
 
+from agents.analyst.tuning import DEFAULT_TUNING, Tuning
 from agents.knowledge.evidence_agent import EvidenceAgent, EvidenceReport
 from agents.knowledge.retriever import has_documents
 
@@ -147,12 +148,17 @@ class SupervisorAgent:
     name = "supervisor"
 
     def __init__(
-        self, session: Session, customer_id: int, completer: Completer | None = None
+        self,
+        session: Session,
+        customer_id: int,
+        completer: Completer | None = None,
+        tuning: Tuning = DEFAULT_TUNING,
     ) -> None:
         self.session = session
         self.customer_id = customer_id
         self.completer = completer
-        self.worker = EvidenceAgent(session, customer_id, completer)
+        self.tuning = tuning
+        self.worker = EvidenceAgent(session, customer_id, completer, tuning)
         # 근거 문서가 있는 고객사에서만 "근거 없으면 생성 안 함" 규칙을 적용한다.
         self.grounded = has_documents(session, customer_id)
 

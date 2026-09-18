@@ -28,6 +28,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from agents.analyst import textutil
+from agents.analyst import tuning as tuning_mod
 from agents.analyst.cluster import (
     Cluster,
     MenuRef,
@@ -364,6 +365,10 @@ def run_triage(
     전에는 버튼 하나가 끝까지 갔고, 관리자는 다 끝난 뒤에야 결과를 봤다.
     """
     generator = generator or get_generator()
+    knobs = tuning_mod.for_customer(session, customer_id)
+    # 인자로 넘어온 값이 있으면 그게 먼저다. CLI 와 테스트가 덮어쓸 수 있어야 한다.
+    if min_cluster_size == MIN_CLUSTER_SIZE:
+        min_cluster_size = knobs.min_cluster_size
     run = _new_run(session, window, customer_id, generator.name)
 
     try:
@@ -389,7 +394,7 @@ def run_triage(
         session.flush()
 
         # 2) 비슷한 질문끼리 묶기
-        clusters = build_clusters(usable)
+        clusters = build_clusters(usable, knobs.cluster_threshold)
         run.clusters_found = len(clusters)
         log.info("clustered", questions=len(questions), usable=len(usable), clusters=len(clusters))
 
@@ -399,7 +404,7 @@ def run_triage(
         skipped_covered = skipped_small = 0
 
         for cluster in clusters:
-            menu, score = find_covering_menu(cluster, menus, COVERAGE_THRESHOLD)
+            menu, score = find_covering_menu(cluster, menus, knobs.coverage_threshold)
             row = QuestionCluster(
                 analysis_run_id=run.analysis_run_id,
                 customer_id=customer_id,

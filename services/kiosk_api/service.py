@@ -24,16 +24,16 @@ from decimal import Decimal
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from agents.analyst import textutil
+from agents.analyst import textutil, tuning
+from agents.analyst.tuning import DEFAULT_TUNING, Tuning
 from services.common.models import CmsMenu, Kiosk, QuestionLog, Site
 
 FALLBACK_ANSWER = "죄송합니다. 해당 내용은 아직 안내해 드릴 수 없습니다. 직원에게 문의해 주세요."
 WEAK_PREFIX = "정확히 일치하는 안내를 찾지 못했습니다. 관련된 안내를 보여드립니다.\n\n"
 
-# 질문의 내용어 중 이만큼을 메뉴가 설명하면 답한 것으로 본다.
-STRONG_MATCH = 0.6
-# 이 아래라도 스친 흔적이 있으면 참고용으로 보여준다.
-WEAK_MATCH = 0.3
+# 기본 임계값은 agents/analyst/tuning.py 에 모여 있다. 고객사별로 바꿀 수 있다.
+STRONG_MATCH = DEFAULT_TUNING.strong_match
+WEAK_MATCH = DEFAULT_TUNING.weak_match
 
 
 def _primary_terms(menu: CmsMenu) -> set[str]:
@@ -92,7 +92,9 @@ def _coverage(tokens: set[str], terms: set[str]) -> float:
     ) / len(tokens)
 
 
-def score_menu(question: str, menu: CmsMenu) -> tuple[float, float]:
+def score_menu(
+    question: str, menu: CmsMenu, tuning: Tuning = DEFAULT_TUNING
+) -> tuple[float, float]:
     """(전체 점수, 주제 적합도) 를 돌려준다.
 
     전체 점수는 "질문이 묻는 것을 이 메뉴가 얼마나 덮는가" 다. '키워드가 하나라도 걸리면
@@ -115,16 +117,16 @@ def score_menu(question: str, menu: CmsMenu) -> tuple[float, float]:
 
     primary_score = _coverage(tokens, primary)
     total = max(primary_score, _coverage(tokens, primary | _body_terms(menu)), keyword_score)
-    return total, primary_score + _intent_bonus(question, menu)
+    return total, primary_score + _intent_bonus(question, menu, tuning)
 
 
 # 항목이 어긋날 때 주제 적합도를 얼마나 올리고 내릴지.
 # 전체 점수(total)에는 손대지 않는다. 임계값 판단은 '질문을 얼마나 덮는가' 로만 해야 하고,
 # 이 보정은 같은 주제의 메뉴끼리 어느 항목인지 가를 때만 쓴다.
-INTENT_BONUS = 0.2
+INTENT_BONUS = DEFAULT_TUNING.intent_bonus
 
 
-def _intent_bonus(question: str, menu: CmsMenu) -> float:
+def _intent_bonus(question: str, menu: CmsMenu, tuning: Tuning = DEFAULT_TUNING) -> float:
     """질문이 묻는 항목과 메뉴가 다루는 항목이 맞는가.
 
     메뉴를 항목별로 쪼개고 나서 필요해졌다. "주차장 몇 시까지 해요?" 의 내용어는
@@ -140,15 +142,17 @@ def _intent_bonus(question: str, menu: CmsMenu) -> float:
     covers = textutil.intents(menu.title)
     if not covers:
         return 0.0
-    return INTENT_BONUS if asked & covers else -INTENT_BONUS
+    return tuning.intent_bonus if asked & covers else -tuning.intent_bonus
 
 
-def find_answer(question: str, menus: list[CmsMenu]) -> tuple[CmsMenu | None, float, str]:
+def find_answer(
+    question: str, menus: list[CmsMenu], tuning: Tuning = DEFAULT_TUNING
+) -> tuple[CmsMenu | None, float, str]:
     """(메뉴, 점수, 판정) 을 돌려준다. 판정은 answer_source 값이 된다."""
     best: CmsMenu | None = None
     best_key = (0.0, 0.0)
     for menu in menus:
-        key = score_menu(question, menu)
+        key = score_menu(question, menu, tuning)
         # 전체 점수가 같으면 주제 적합도가 높은 쪽을 고른다.
         if key > best_key:
             best, best_key = menu, key
@@ -156,10 +160,10 @@ def find_answer(question: str, menus: list[CmsMenu]) -> tuple[CmsMenu | None, fl
 
     if best is None:
         return None, 0.0, "fallback"
-    if best_score >= STRONG_MATCH and _answers_what_was_asked(question, best):
+    if best_score >= tuning.strong_match and _answers_what_was_asked(question, best):
         return best, best_score, "cms_menu"
 
-    if best_score >= WEAK_MATCH:
+    if best_score >= tuning.weak_match:
         return best, best_score, "low_confidence"
     return None, best_score, "fallback"
 
@@ -215,8 +219,11 @@ def ask(
     답을 못 했거나 확신이 낮았던 기록이 오히려 제일 값지다.
     """
     started = time.perf_counter()
-    menus = published_menus(session, customer_of(session, kiosk))
-    menu, score, verdict = find_answer(question_text, menus)
+    customer_id = customer_of(session, kiosk)
+    menus = published_menus(session, customer_id)
+    menu, score, verdict = find_answer(
+        question_text, menus, tuning.for_customer(session, customer_id)
+    )
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     now = dt.datetime.now(dt.UTC)
 

@@ -19,6 +19,7 @@ from sqlalchemy import select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
+from agents.analyst import tuning as tuning_mod
 from agents.analyst.content_agent import ContentAgent
 from agents.analyst.generator import ProposalGenerator, get_generator
 from agents.analyst.runner import (
@@ -186,12 +187,13 @@ def run_generation(
     run.status = "running"
     session.commit()
 
+    knobs = tuning_mod.for_customer(session, customer_id)
     try:
         completer = cast(
             "SupervisorCompleter | None",
             generator if hasattr(generator, "complete") else None,
         )
-        supervisor = SupervisorAgent(session, customer_id, completer)
+        supervisor = SupervisorAgent(session, customer_id, completer, knobs)
         ready, missing = _collect_evidence(session, supervisor, payloads)
 
         proposals: list[Any] = []
@@ -203,7 +205,10 @@ def run_generation(
                     )
                 )
             )
-            agent = ContentAgent(generator, existing_menus=active)
+            agent = ContentAgent(
+                generator, existing_menus=active,
+                max_revisions=knobs.max_revisions, target_coverage=knobs.target_coverage,
+            )
             window = Window(start=run.window_start, end=run.window_end)
             proposals = list(agent.generate(ready, window.label))
             generator = agent  # 아래에서 usage / traces 를 읽는다
