@@ -20,6 +20,7 @@ from typing import Any, Protocol
 import structlog
 
 from agents.analyst import textutil
+from agents.analyst.placeholder import clean_body
 from agents.analyst.verify import TARGET_COVERAGE, VerifyResult, as_menu, verify_draft
 from agents.contracts.proposal import ContentProposal
 from services.common.models import CmsMenu
@@ -133,6 +134,25 @@ class ContentAgent:
         # 제안이 어느 주제에서 나왔는지. runner 가 cluster_id 를 잇는 데 쓴다.
         self.sources: dict[str, list[str]] = {}
 
+    def _tidy_placeholders(self, proposals: list[ContentProposal]) -> list[ContentProposal]:
+        """옆 메뉴가 다루는 내용을 '(확인 후 입력 필요)' 로 떠넘긴 문장을 지운다.
+
+        메뉴를 쪼개라고 시키면 모델은 자기 메뉴만 보고 "내 본문에 없으니 모른다" 고 쓴다.
+        프롬프트로 두 번 막아봤고 두 번 다 안 됐다(26건 중 25건). 구조적인 실수라
+        여기서 지운다. 근거에도 옆 메뉴에도 없는 빈칸은 그대로 남는다.
+        """
+        titles = [p.title for p in proposals]
+        fixed: list[ContentProposal] = []
+        for proposal in proposals:
+            others = [t for t in titles if t != proposal.title]
+            body, dropped = clean_body(proposal.body, others, has_siblings=len(proposals) > 1)
+            if not dropped:
+                fixed.append(proposal)
+                continue
+            log.info("placeholder_dropped", title=proposal.title, sentences=dropped)
+            fixed.append(proposal.model_copy(update={"body": body}))
+        return fixed
+
     def _verify(self, proposal: ContentProposal, questions: list[str]) -> VerifyResult:
         draft = as_menu(proposal.title, proposal.body, proposal.keywords)
         return verify_draft(draft, questions, self.existing_menus)
@@ -182,6 +202,7 @@ class ContentAgent:
             return proposals
 
         by_label = {str(cluster.get("label")): cluster for cluster in clusters}
+        proposals = self._tidy_placeholders(proposals)
 
         verified: list[ContentProposal] = []
         for proposal in proposals:

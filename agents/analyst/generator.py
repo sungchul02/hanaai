@@ -40,15 +40,49 @@ SYSTEM_PROMPT = """\
    그런 주제는 콘텐츠가 없는 게 아니라 매칭이 안 되는 것이라 다른 문제다.
 3. 표본이 너무 적으면(2~3건) 제외한다. 우연일 수 있다.
 
+**한 주제를 여러 메뉴로 쪼개라.** 이게 가장 중요하다.
+사용자는 "주차 요금 얼마예요" 와 "주차장 몇 시까지 해요" 를 따로 묻는다.
+그런데 '주차 안내' 메뉴 하나에 면수·시간·요금·결제를 다 담으면, 요금만 묻는 사람에게도
+344면 이야기부터 통째로 읽힌다. 키오스크 앞에 선 사람은 그걸 끝까지 읽지 않는다.
+
+  나쁨: [주차 안내] 총 344면입니다. 평일 08시부터 18시까지 운영합니다.
+                  최초 2시간 무료이고 30분당 500원입니다. 카드결제 정산기에서...
+  좋음: [주차 요금]     최초 2시간 무료, 이후 30분당 500원, 1일 최대 8,000원입니다.
+        [주차 운영시간] 평일 08시부터 18시까지 운영합니다.
+        [주차장 규모]   총 344면이며 지상 241면, 지하 103면입니다.
+
+나누는 기준은 '사용자가 따로 물어보는가' 다.
+근거 문서의 heading 이 이미 그 단위로 나뉘어 있으니 그것을 따라가면 된다.
+근거 조각 하나가 메뉴 하나라고 생각해도 대체로 맞다.
+
+다만 억지로 쪼개지는 마라. 질문이 그 항목을 따로 묻지 않으면 하나로 둔다.
+'지상 241면' 과 '지하 103면' 을 따로 묻는 사람은 없다.
+
+**쪼갠 메뉴에 옆 메뉴 이야기를 쓰지 마라.** 이게 자주 틀린다.
+'주차장 운영시간' 메뉴에 "주차 요금은 (확인 후 입력 필요)" 라고 쓰면 안 된다.
+요금은 모르는 것이 아니라 '주차 요금' 메뉴가 따로 다루는 것이다.
+'(확인 후 입력 필요)' 는 **근거 문서 어디에도 없는 사실**에만 쓴다.
+다른 메뉴로 넘긴 내용에는 쓰지 않는다. 각 메뉴는 자기 항목만 말하고 끝낸다.
+
 메뉴 초안을 쓸 때:
-- title 은 키오스크 화면에 뜨는 짧은 메뉴명이다. '주차 안내' 처럼 명사구로 쓴다.
+- title 은 키오스크 화면에 뜨는 짧은 메뉴명이다. **무엇에 대한 답인지가 제목에 드러나야 한다.**
+  '주차 안내' 보다 '주차 요금' 이 낫다. 앞은 무엇이 들었는지 열어봐야 알고, 뒤는 바로 안다.
 - body 는 사용자가 그대로 읽고 끝낼 수 있는 완성된 안내 문장이다.
-  **모르는 사실을 지어내지 마라.** 질문에서 위치나 시간을 알 수 없으면
-  '(확인 후 입력 필요)' 를 넣어 관리자가 채우게 한다. 틀린 안내가 나가는 것이 최악이다.
-- keywords 는 사용자가 쓸 법한 말로 채운다. 질문에 나온 표현을 그대로 쓴다.
+  **묻지 않은 것을 덧붙이지 마라.** 요금 메뉴에 운영시간을 끼워 넣으면 쪼갠 의미가 없다.
+  **evidence_from_documents 에 적힌 내용만 사실로 써라.** 그것이 기관이 공개한 원문이다.
+  주소·시간·요금·층수 같은 숫자는 원문 그대로 옮긴다. 반올림하거나 바꿔 쓰지 마라.
+  **거기 없는 사실은 지어내지 마라.** 근거 문서 전체를 뒤져도 없는 항목만
+  '(확인 후 입력 필요)' 로 남겨 관리자가 채우게 한다. 틀린 안내가 나가는 것이 최악이다.
+  반대로, 근거에 있는데 다른 메뉴가 다루는 내용이라면 그냥 쓰지 않고 넘어간다.
+- keywords 는 이 메뉴가 **무엇에 대한 것인지** 나타내는 낱말이다. 질문에 나온 표현을 쓰되,
+  '어디', '알려주세요', '몇 층', '가능' 같은 **말투는 넣지 마라.** 어느 주제에나 붙는 말이라
+  넣으면 상관없는 질문까지 이 메뉴로 답해진다. '화장실 어디야' 가 무인발급기 안내로
+  답해진 적이 있고, 원인이 키워드의 '어디' 였다.
 - evidence 는 입력으로 받은 숫자를 그대로 옮긴다. 새로 계산하지 마라.
+  (evidence 는 질문 통계이고, evidence_from_documents 는 근거 문서다. 서로 다른 것이다.)
 - source_labels 에는 이 추천이 나온 주제의 label 을 **글자 그대로** 옮긴다.
   여러 주제를 하나로 합쳤으면 합친 주제를 전부 적는다. 이 값으로 추천과 질문을 잇는다.
+  한 주제를 여러 메뉴로 쪼갰다면 각 메뉴에 같은 label 을 적으면 된다.
 
 출력:
 JSON 배열만 출력한다. 아래 예시의 키 이름을 글자 그대로 쓴다.
@@ -77,31 +111,52 @@ def _example_json() -> str:
 
     손으로 적은 예시는 계약이 바뀌면 조용히 틀린 것을 가르치게 된다.
     여기서 만든 예시는 정의상 항상 유효하다.
+
+    예시를 둘 넣는 이유: 주제 하나('주차') 가 메뉴 둘로 쪼개지는 모습을 보여주기 위해서다.
+    말로만 "쪼개라" 고 하면 모델은 여전히 통짜 메뉴 하나를 낸다. 실제로 그랬다.
     """
-    example = ContentProposal(
-        title="주차 안내",
-        body=(
-            "주차장은 건물 지하 1층에 있습니다. "
-            "정문 오른쪽 진입로로 들어오시면 되고, 최초 30분은 무료입니다. "
-            "(요금 정보는 확인 후 입력 필요)"
-        ),
-        reason="최근 7일간 주차 관련 질문이 87건 있었으나 현재 관련 메뉴가 없어 전부 답하지 못했다",
-        keywords=["주차", "주차장", "차", "주차요금"],
-        source_labels=["주차장 어디예요?", "차 어디에 대면 돼요?"],
-        evidence=ClusterEvidence(
-            question_count=87,
-            unanswered_count=87,
-            window="2026-09-11/2026-09-18",
-            sample_questions=["주차장 어디예요?", "차 어디에 대면 돼요?", "주차 가능한가요?"],
-            existing_menu=None,
-        ),
-        impact_score=87.0,
-        confidence=0.8,
-        dedupe_key="parking",
+    reason = "최근 7일간 주차 관련 질문이 87건 있었으나 관련 메뉴가 없어 전부 답하지 못했다"
+    labels = ["주차장 어디예요?", "차 어디에 대면 돼요?"]
+    evidence = ClusterEvidence(
+        question_count=87,
+        unanswered_count=87,
+        window="2026-09-11/2026-09-18",
+        sample_questions=["주차 요금 얼마예요?", "주차장 몇 시까지 해요?", "주차 가능한가요?"],
+        existing_menu=None,
     )
-    dumped = example.model_dump(mode="json")
-    dumped.pop("contract_version", None)
-    return json.dumps([dumped], ensure_ascii=False, indent=2)
+    examples = [
+        ContentProposal(
+            title="주차 요금",
+            body=(
+                "천안시청 주차 요금은 최초 2시간 무료입니다. "
+                "2시간을 초과하면 30분당 500원이며, 1일 최대 8,000원입니다."
+            ),
+            reason=reason,
+            keywords=["주차요금", "주차비", "주차 무료", "주차 유료"],
+            source_labels=labels,
+            evidence=evidence,
+            impact_score=87.0,
+            confidence=0.8,
+            dedupe_key="parking-fee",
+        ),
+        ContentProposal(
+            title="주차장 운영시간",
+            body="천안시청 주차장은 평일 08시부터 18시까지 운영합니다.",
+            reason=reason,
+            keywords=["주차 운영시간", "주차장 시간", "주차 몇시"],
+            source_labels=labels,
+            evidence=evidence,
+            impact_score=87.0,
+            confidence=0.8,
+            dedupe_key="parking-hours",
+        ),
+    ]
+    dumped = []
+    for example in examples:
+        row = example.model_dump(mode="json")
+        row.pop("contract_version", None)
+        dumped.append(row)
+    return json.dumps(dumped, ensure_ascii=False, indent=2)
 
 
 def build_system_prompt() -> str:
@@ -216,6 +271,18 @@ class ClaudeCliGenerator:
         self.executable = executable
         self.last_usage: dict[str, Any] | None = None
         self.last_errors: list[str] = []
+        # 한 번의 분석에서 LLM 은 여러 번 불린다. 분류 · 근거 조사 · 초안 · 수정.
+        # 마지막 호출만 기록하면 비용이 실제보다 훨씬 적게 보인다.
+        self.total_usage: dict[str, Any] = {"calls": 0, "cost_usd": 0.0, "duration_ms": 0}
+
+    def _accumulate(self, cost: float | None, duration: int | None) -> None:
+        self.total_usage["calls"] += 1
+        self.total_usage["cost_usd"] = round(
+            float(self.total_usage["cost_usd"]) + float(cost or 0), 6
+        )
+        self.total_usage["duration_ms"] += int(duration or 0)
+        self.total_usage["backend"] = self.name
+        self.total_usage["model"] = self.model
 
     def _resolve_executable(self) -> str:
         resolved = shutil.which(self.executable)
@@ -288,6 +355,7 @@ class ClaudeCliGenerator:
             "duration_ms": envelope.get("duration_ms"),
             "usage": envelope.get("usage"),
         }
+        self._accumulate(envelope.get("total_cost_usd"), envelope.get("duration_ms"))
         result = envelope.get("result")
         if not isinstance(result, str):
             raise RuntimeError("CLI 응답에 result 문자열이 없다")

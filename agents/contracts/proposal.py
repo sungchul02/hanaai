@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 CONTRACT_VERSION = "1.0"
 
@@ -58,6 +58,23 @@ class ContentProposal(BaseModel):
     )
     evidence: ClusterEvidence
     impact_score: float = Field(ge=0, description="질문 수와 미응답 비율로 매긴 우선순위")
+
+    @field_validator("keywords")
+    @classmethod
+    def _drop_filler_keywords(cls, values: list[str]) -> list[str]:
+        """말투를 키워드에서 뺀다. '어디', '알려주세요' 같은 것들.
+
+        모델이 "사용자가 쓸 법한 말" 을 넣으라는 지시를 말투까지로 넓게 받는다.
+        실제로 무인민원발급기 안내에 '어디' 가 들어갔고, 그 메뉴가
+        "화장실 어디야" 에 답해버렸다. 아무 질문이나 걸리는 그물이 된다.
+
+        전부 말투였다면 원래 값을 남긴다. 여기서 비우면 계약(최소 1개)이 깨져서
+        제안 자체가 버려지는데, 매칭 쪽에서 어차피 다시 거르므로 그럴 이유가 없다.
+        """
+        from agents.analyst import textutil
+
+        kept = [value for value in values if not textutil.is_filler(value)]
+        return kept or values
     confidence: float = Field(ge=0, le=1)
     dedupe_key: str | None = None
 
