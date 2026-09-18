@@ -1,0 +1,63 @@
+[project]
+name = "hanaai"
+version = "0.1.0"
+description = "키오스크 운영 데이터 기반 자율 개선 루프"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "sqlalchemy>=2.0.36",
+    "psycopg[binary]>=3.2",
+    "alembic>=1.14",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "structlog>=24.4",
+]
+
+[project.optional-dependencies]
+# 기업 배포에서 claude-api 백엔드를 쓸 때만 필요하다. CLI 백엔드는 키도 SDK 도 필요 없다.
+agents = ["anthropic>=0.40"]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "httpx>=0.28",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["services", "agents", "orchestrator"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # 주석·문자열에 한글 사용
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+plugins = []
+exclude = ["^db/migrations/versions/"]
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+strict = false
+
+# anthropic SDK 는 선택 의존성이다. 없어도 claude-cli 백엔드로 전부 동작해야 한다.
+[[tool.mypy.overrides]]
+module = ["anthropic", "anthropic.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "db: 실제 PostgreSQL 연결이 필요한 테스트 (docker compose up 필요)",
+]

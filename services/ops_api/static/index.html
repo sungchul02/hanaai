@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HANAAI 운영 콘솔</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1d2129;
+    --line: #272c36;
+    --text: #e6e8ec;
+    --muted: #8b93a3;
+    --accent: #6aa9ff;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Pretendard", -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+    font-size: 14px; line-height: 1.5;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+    padding: 18px 24px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  header h1 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  header .spacer { flex: 1; }
+  button {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 5px 11px; cursor: pointer; font-size: 12px;
+    font-family: inherit;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: #1e3a5f; border-color: #2c5a8f; }
+  button.danger:hover { border-color: var(--bad); }
+  main { padding: 20px 24px 60px; max-width: 1280px; margin: 0 auto; }
+
+  .cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 13px 15px; }
+  .card .label { color: var(--muted); font-size: 11.5px; letter-spacing: 0.02em; }
+  .card .value { font-family: var(--mono); font-size: 25px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .card .value.warn { color: var(--warn); }
+  .card .value.bad { color: var(--bad); }
+  .card .value.ok { color: var(--ok); }
+
+  .flow {
+    display: flex; align-items: stretch; gap: 0; margin: 22px 0 4px;
+    border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel);
+  }
+  .stage { flex: 1; padding: 12px 14px; border-right: 1px solid var(--line); position: relative; }
+  .stage:last-child { border-right: 0; }
+  .stage .n { color: var(--muted); font-size: 11px; }
+  .stage .t { font-weight: 600; margin-top: 2px; }
+  .stage .v { font-family: var(--mono); font-size: 18px; margin-top: 6px; }
+  .stage .s { font-size: 11px; margin-top: 3px; }
+  .stage.done .s { color: var(--ok); }
+  .stage.todo .s { color: var(--muted); }
+
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em;
+       color: var(--muted); margin: 30px 0 10px; font-weight: 600; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 11.5px; letter-spacing: 0.03em; }
+  tr:last-child td { border-bottom: 0; }
+  td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
+  .bar { display: inline-block; height: 6px; border-radius: 3px; background: var(--accent); vertical-align: middle; }
+  .bar.bad { background: var(--bad); }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px;
+         border: 1px solid var(--line); color: var(--muted); }
+  .tag.ok { color: var(--ok); border-color: #25543a; }
+  .tag.warn { color: var(--warn); border-color: #5c4718; }
+  .tag.bad { color: var(--bad); border-color: #5f2a2a; }
+
+  .prop { border-bottom: 1px solid var(--line); padding: 14px 16px; }
+  .prop:last-child { border-bottom: 0; }
+  .prop .head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .prop .title { font-weight: 600; }
+  .prop .meta { color: var(--muted); font-size: 12px; }
+  .prop .body { margin-top: 10px; display: none; }
+  .prop.open .body { display: block; }
+  .prop dt { color: var(--muted); font-size: 11.5px; margin-top: 9px; }
+  .prop dd { margin: 3px 0 0; }
+  .prop ul { margin: 4px 0 0; padding-left: 18px; }
+  .prop .actions { margin-top: 12px; display: flex; gap: 8px; }
+  .evidence { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .empty { padding: 22px; color: var(--muted); text-align: center; }
+  .err { padding: 10px 14px; background: #3a1d1d; border: 1px solid #5f2a2a; border-radius: 6px; margin-bottom: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>HANAAI 운영 콘솔</h1>
+  <span class="sub">키오스크 데이터 → 분석 → 개발 → 배포 루프</span>
+  <span class="spacer"></span>
+  <span class="sub" id="ts">—</span>
+  <button onclick="loadAll()">새로고침</button>
+</header>
+
+<main>
+  <div id="error"></div>
+
+  <div class="cards" id="cards"></div>
+
+  <h2>루프 현황</h2>
+  <div class="flow" id="flow"></div>
+
+  <h2>고객사</h2>
+  <div class="panel" id="customers"></div>
+
+  <h2>장치 모델별 건강도 <span style="text-transform:none;letter-spacing:0">— 최근 7일</span></h2>
+  <div class="panel" id="health"></div>
+
+  <h2>검토 대기 제안</h2>
+  <div class="panel" id="proposals"></div>
+
+  <h2>키오스크</h2>
+  <div class="panel" id="kiosks"></div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pct = (v) => v == null ? "—" : (v * 100).toFixed(2) + "%";
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok) throw new Error(path + " → HTTP " + res.status);
+  return res.json();
+}
+
+function showError(msg) {
+  $("error").innerHTML = msg ? `<div class="err">${esc(msg)}</div>` : "";
+}
+
+function ago(iso) {
+  if (!iso) return "보고 없음";
+  const secs = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (secs < 90) return "방금";
+  if (secs < 5400) return Math.round(secs / 60) + "분 전";
+  if (secs < 172800) return Math.round(secs / 3600) + "시간 전";
+  return Math.round(secs / 86400) + "일 전";
+}
+
+function renderCards(s) {
+  const items = [
+    ["키오스크", s.kiosks, ""],
+    ["미보고", s.kiosks_stale, s.kiosks_stale ? "warn" : "ok"],
+    ["고객사", s.customers, ""],
+    ["이벤트 24h", s.events_24h.toLocaleString(), ""],
+    ["오류 24h", s.errors_24h.toLocaleString(), s.errors_24h ? "bad" : "ok"],
+    ["격리 24h", s.quarantined_24h, s.quarantined_24h ? "warn" : "ok"],
+    ["검토 대기", s.proposals_pending, s.proposals_pending ? "warn" : ""],
+  ];
+  $("cards").innerHTML = items.map(([label, value, cls]) =>
+    `<div class="card"><div class="label">${label}</div>
+     <div class="value ${cls}">${value}</div></div>`).join("");
+}
+
+// 4개 과제를 화면에 그대로 세워둔다. 어디까지 살아있는지가 한눈에 보여야 한다.
+function renderFlow(s, health) {
+  const stages = [
+    ["1", "데이터 수집", s.events_24h.toLocaleString() + " 건", "동작 · 24시간", "done"],
+    ["2", "분석 Agent", s.proposals_pending + " 건 대기", "동작 · claude-cli", "done"],
+    ["3", "개발 Agent", s.proposals_approved + " 건 승인됨", "가드레일만 · 구현 M5", "todo"],
+    ["4", "CI/CD 배포", "0 건", "카나리 미구현 · M6", "todo"],
+  ];
+  $("flow").innerHTML = stages.map(([n, t, v, st, cls]) =>
+    `<div class="stage ${cls}"><div class="n">과제 ${n}</div><div class="t">${t}</div>
+     <div class="v">${v}</div><div class="s">${st}</div></div>`).join("");
+}
+
+function renderCustomers(rows) {
+  if (!rows.length) return $("customers").innerHTML = '<div class="empty">고객사 없음</div>';
+  $("customers").innerHTML = `<table><thead><tr>
+      <th>코드</th><th>이름</th><th>상태</th><th class="num">지점</th><th class="num">키오스크</th>
+    </tr></thead><tbody>` + rows.map(c => `<tr>
+      <td><code>${esc(c.code)}</code></td><td>${esc(c.name)}</td>
+      <td><span class="tag ${c.status === 'active' ? 'ok' : ''}">${esc(c.status)}</span></td>
+      <td class="num">${c.sites}</td><td class="num">${c.kiosks}</td>
+    </tr>`).join("") + `</tbody></table>`;
+}
+
+function renderHealth(rows) {
+  if (!rows.length) return $("health").innerHTML = '<div class="empty">데이터 없음</div>';
+  const max = Math.max(...rows.map(r => r.error_rate || 0), 0.0001);
+  $("health").innerHTML = `<table><thead><tr>
+      <th>종류</th><th>벤더</th><th>모델</th><th>드라이버</th>
+      <th class="num">설치</th><th class="num">이벤트</th><th class="num">오류</th>
+      <th class="num">오류율</th><th style="width:130px"></th>
+    </tr></thead><tbody>` + rows.map(r => {
+      const w = r.error_rate ? Math.max(3, (r.error_rate / max) * 120) : 0;
+      const bad = r.error_rate && r.error_rate > 0.05;
+      return `<tr>
+        <td>${esc(r.kind)}</td><td>${esc(r.vendor)}</td><td>${esc(r.model_name)}</td>
+        <td class="evidence">${esc(r.driver_version || "—")}</td>
+        <td class="num">${r.installed_count}</td>
+        <td class="num">${r.event_count.toLocaleString()}</td>
+        <td class="num">${r.error_count.toLocaleString()}</td>
+        <td class="num" style="color:${bad ? 'var(--bad)' : 'inherit'}">${pct(r.error_rate)}</td>
+        <td><span class="bar ${bad ? 'bad' : ''}" style="width:${w}px"></span></td>
+      </tr>`;
+    }).join("") + `</tbody></table>`;
+}
+
+function renderProposals(rows) {
+  if (!rows.length) return $("proposals").innerHTML = '<div class="empty">검토 대기 중인 제안 없음</div>';
+  $("proposals").innerHTML = rows.map(p => `
+    <div class="prop" id="p${p.proposal_id}">
+      <div class="head" onclick="toggle(${p.proposal_id})" style="cursor:pointer">
+        <span class="title">${esc(p.title)}</span>
+        <span class="tag">${esc(p.scope)}</span>
+        <span class="meta">영향도 ${p.impact_score}</span>
+        <span class="meta">#${p.proposal_id}</span>
+      </div>
+      <div class="body" data-loaded="0"></div>
+    </div>`).join("");
+}
+
+async function toggle(id) {
+  const el = $("p" + id);
+  el.classList.toggle("open");
+  const body = el.querySelector(".body");
+  if (!el.classList.contains("open") || body.dataset.loaded === "1") return;
+
+  const d = await api(`/v1/proposals/${id}`);
+  const b = d.body;
+  const ev = (b.evidence || []).map(e =>
+    `<div class="evidence">${esc(e.metric)} · 관측 ${e.observed} / 기준 ${e.baseline}
+     · 표본 ${e.sample_size} · 키오스크 ${e.affected_kiosks} · ${esc(e.window)}
+     · <b>${esc(e.query_id)}</b></div>`).join("");
+  body.innerHTML = `
+    <dl>
+      <dt>문제</dt><dd>${esc(b.problem)}</dd>
+      <dt>가설</dt><dd>${esc(b.hypothesis)}</dd>
+      <dt>제안</dt><dd>${esc(b.proposal)}</dd>
+      <dt>인수 조건 (개발 Agent 가 테스트로 옮길 대상)</dt>
+      <dd><ul>${(b.acceptance_criteria || []).map(c => `<li>${esc(c)}</li>`).join("")}</ul></dd>
+      ${b.risks && b.risks.length ? `<dt>리스크</dt><dd><ul>${b.risks.map(r => `<li>${esc(r)}</li>`).join("")}</ul></dd>` : ""}
+      <dt>근거</dt><dd>${ev}</dd>
+      <dt>난이도 / 확신도</dt><dd class="evidence">${esc(b.effort_estimate)} · ${b.confidence}</dd>
+    </dl>
+    <div class="actions">
+      <button class="primary" onclick="decide(${id},'approve')">승인 → 개발 Agent 로</button>
+      <button class="danger" onclick="decide(${id},'reject')">거절</button>
+    </div>`;
+  body.dataset.loaded = "1";
+}
+
+async function decide(id, action) {
+  const reviewer = prompt("검토자 이름", "robin");
+  if (!reviewer) return;
+  try {
+    await api(`/v1/proposals/${id}/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reviewer })
+    });
+    await loadAll();
+  } catch (e) { showError(e.message); }
+}
+
+function renderKiosks(rows) {
+  if (!rows.length) return $("kiosks").innerHTML = '<div class="empty">키오스크 없음</div>';
+  $("kiosks").innerHTML = `<table><thead><tr>
+      <th>시리얼</th><th>모델</th><th>상태</th><th>앱 버전</th><th>마지막 보고</th>
+    </tr></thead><tbody>` + rows.map(k => {
+      const stale = !k.last_seen_at ||
+        (Date.now() - new Date(k.last_seen_at).getTime()) > 3600e3;
+      return `<tr>
+        <td><code>${esc(k.serial_no)}</code></td><td>${esc(k.model)}</td>
+        <td><span class="tag ${k.status === 'active' ? 'ok' : ''}">${esc(k.status)}</span></td>
+        <td class="evidence">${esc(k.app_version || "—")}</td>
+        <td class="${stale ? '' : ''}" style="color:${stale ? 'var(--warn)' : 'var(--muted)'}">${ago(k.last_seen_at)}</td>
+      </tr>`;
+    }).join("") + `</tbody></table>`;
+}
+
+async function loadAll() {
+  try {
+    showError("");
+    const [summary, customers, health, proposals, kiosks] = await Promise.all([
+      api("/v1/fleet/summary"),
+      api("/v1/customers"),
+      api("/v1/fleet/peripheral-health?days=7"),
+      api("/v1/proposals?status=pending_review"),
+      api("/v1/kiosks?limit=50"),
+    ]);
+    renderCards(summary);
+    renderFlow(summary, health);
+    renderCustomers(customers);
+    renderHealth(health);
+    renderProposals(proposals);
+    renderKiosks(kiosks);
+    $("ts").textContent = "갱신 " + new Date().toLocaleTimeString("ko-KR");
+  } catch (e) {
+    showError("데이터를 불러오지 못했습니다: " + e.message);
+  }
+}
+
+loadAll();
+setInterval(loadAll, 30000);
+</script>
+</body>
+</html>
