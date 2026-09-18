@@ -59,6 +59,7 @@
   .badge { padding: 2px 9px; border-radius: 20px; font-weight: 600; }
   .badge.ok   { background: #d1fae5; color: var(--ok); }
   .badge.miss { background: #fef3c7; color: var(--miss); }
+  .badge.weak { background: #e0e7ff; color: #3730a3; }
 
   .menus { margin-top: 26px; }
   .menus h2 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 0 0 10px; letter-spacing: .03em; }
@@ -154,10 +155,17 @@ async function send() {
     });
     $("asked").textContent = "Q. " + question;
     $("reply").textContent = out.answer;
-    const ok = out.answer_source === "cms_menu";
-    $("src").innerHTML = ok
-      ? `<span class="badge ok">안내 완료</span> <span>메뉴: ${esc(out.matched_menu_title)}</span>`
-      : `<span class="badge miss">답변 불가</span> <span>이 질문은 기록되어 AI 추천 대상이 됩니다</span>`;
+    if (out.answer_source === "cms_menu") {
+      $("src").innerHTML =
+        `<span class="badge ok">안내 완료</span> <span>메뉴: ${esc(out.matched_menu_title)}</span>`;
+    } else if (out.answer_source === "low_confidence") {
+      // 답은 보여주되 확신이 낮다고 밝힌다. 이것도 AI 추천 대상으로 센다.
+      $("src").innerHTML =
+        `<span class="badge weak">참고 안내</span> <span>정확한 답이 아닐 수 있습니다 (메뉴: ${esc(out.matched_menu_title)})</span>`;
+    } else {
+      $("src").innerHTML =
+        `<span class="badge miss">답변 불가</span> <span>이 질문은 기록되어 AI 추천 대상이 됩니다</span>`;
+    }
     $("answer").classList.add("show");
     $("q").value = "";
   } catch (e) {

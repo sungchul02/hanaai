@@ -103,7 +103,9 @@ def _strip_tail(word: str) -> str:
         if len(word) > len(tail) + 1 and word.endswith(tail):
             return word[: -len(tail)]
     for particle in _PARTICLES:
-        if len(word) > len(particle) + 1 and word.endswith(particle):
+        # '시까지' 처럼 조사를 떼면 한 글자만 남는 경우도 떼야 한다.
+        # 남겨두면 그게 내용어로 잡혀서 "몇 시까지 해요" 가 운영시간 메뉴와 안 맞는다.
+        if len(word) > len(particle) and word.endswith(particle):
             return word[: -len(particle)]
     return word
 

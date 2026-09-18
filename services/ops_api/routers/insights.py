@@ -35,6 +35,9 @@ _SUMMARY_SQL = text(
                                                                             AS questions_today,
       (SELECT count(*) FROM recent WHERE answer_source = 'cms_menu')         AS answered_7d,
       (SELECT count(*) FROM recent WHERE answer_source <> 'cms_menu')        AS unanswered_7d,
+      -- 약하게 맞은 것은 답을 보여줬어도 '답한 것' 으로 치지 않는다.
+      -- 스치듯 걸린 답변이 응답 완료로 잡히면 진짜 공백이 묻힌다.
+      (SELECT count(*) FROM recent WHERE answer_source = 'low_confidence')    AS weak_7d,
       (SELECT count(*) FROM recent WHERE verdict IN ('abusive', 'too_short')) AS junk_7d,
       (SELECT count(*) FROM cms_menu
         WHERE customer_id = :customer_id AND status = 'published')           AS menus_published,
@@ -66,6 +69,7 @@ _QUESTIONS_SQL = text(
     """
     SELECT q.question_id, q.asked_at, k.serial_no AS kiosk_serial, q.question_text,
            q.answer_source::text AS answer_source, m.title AS matched_menu_title,
+           q.match_score,
            q.verdict::text AS verdict
     FROM question_log q
     JOIN kiosk k ON k.kiosk_id = q.kiosk_id

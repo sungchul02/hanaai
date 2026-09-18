@@ -21,6 +21,7 @@ class DashboardSummary(BaseModel):
     questions_today: int
     answered_7d: int
     unanswered_7d: int
+    weak_7d: int
     answer_rate_7d: float | None
     junk_7d: int
     menus_published: int
@@ -49,6 +50,7 @@ class QuestionRow(BaseModel):
     question_text: str
     answer_source: str
     matched_menu_title: str | None
+    match_score: float | None
     verdict: str
 
 

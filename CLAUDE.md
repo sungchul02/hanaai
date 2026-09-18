@@ -52,6 +52,11 @@ HANAAI_DATABASE_URL=postgresql+psycopg://hanaai:hanaai@localhost:5432/hanaai_tes
 
 **키오스크가 모르는 질문에 생성형으로 답하지 않는다.** 답을 지어내기 시작하면
 "어떤 주제에 콘텐츠가 없는가" 를 영원히 알 수 없게 된다. 그게 이 시스템의 존재 이유다.
+답변 경로에는 LLM 이 없다. LLM 은 관리자가 [분석 실행] 을 누를 때만 호출된다.
+
+**'키워드 하나 걸렸으니 통과' 로 두지 않는다.** 질문이 묻는 것을 메뉴가 얼마나 덮는지를
+본다. 확신이 낮으면 `low_confidence` 로 남기고 분석에서는 공백으로 센다.
+스치듯 맞은 답이 '응답 완료' 로 기록되면 진짜 공백이 묻힌다.
 
 **추천을 CMS 에 자동 반영하지 않는다.** 승인 한 번이면 그대로 고객에게 보이는 문장이다.
 `content_proposal` → `cms_menu` 로 가는 유일한 길은 `services/ops_api/routers/review.py` 다.

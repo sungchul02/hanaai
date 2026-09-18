@@ -43,7 +43,14 @@ QuestionVerdict = ENUM(
     name="question_verdict",
     create_type=False,
 )
-AnswerSource = ENUM("cms_menu", "fallback", "none", name="answer_source", create_type=False)
+AnswerSource = ENUM(
+    "cms_menu",
+    "low_confidence",
+    "fallback",
+    "none",
+    name="answer_source",
+    create_type=False,
+)
 MenuStatus = ENUM("draft", "published", "archived", name="menu_status", create_type=False)
 ProposalStatus = ENUM(
     "pending_review",
@@ -145,6 +152,8 @@ class QuestionLog(Base):
     answer_text: Mapped[str | None] = mapped_column(Text)
     answer_source: Mapped[str] = mapped_column(AnswerSource, server_default=text("'none'"))
     matched_menu_id: Mapped[int | None] = mapped_column(ForeignKey("cms_menu.menu_id"))
+    # 매칭 확신도. 임계값을 조정할 때 과거 데이터로 검증하려면 남겨둬야 한다.
+    match_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
     response_ms: Mapped[int | None] = mapped_column(Integer)
     input_mode: Mapped[str] = mapped_column(Text, server_default=text("'touch'"))
     verdict: Mapped[str] = mapped_column(QuestionVerdict, server_default=text("'pending'"))

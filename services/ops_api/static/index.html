@@ -54,6 +54,7 @@
   .tag.ok { color: var(--ok); border-color: #a7f3d0; background: #ecfdf5; }
   .tag.miss { color: var(--warn); border-color: #fde68a; background: #fffbeb; }
   .tag.ai { color: var(--brand); border-color: #bfdbfe; background: #eff6ff; }
+  .tag.weak { color: #3730a3; border-color: #c7d2fe; background: #eef2ff; }
 
   .prop { border-bottom: 1px solid var(--line); padding: 16px 18px; }
   .prop:last-child { border-bottom: 0; }
@@ -134,6 +135,7 @@ function renderCards(s) {
     ["오늘", s.questions_today.toLocaleString(), ""],
     ["답변률", rate, s.answer_rate_7d != null && s.answer_rate_7d < 0.7 ? "warn" : "ok"],
     ["답하지 못함", s.unanswered_7d.toLocaleString(), s.unanswered_7d ? "warn" : "ok"],
+    ["약한 매칭", s.weak_7d.toLocaleString(), s.weak_7d ? "warn" : ""],
     ["불필요 질문", s.junk_7d.toLocaleString(), ""],
     ["CMS 메뉴", s.menus_published, ""],
     ["AI가 만든 메뉴", s.menus_from_ai, s.menus_from_ai ? "ok" : ""],
@@ -235,7 +237,9 @@ function renderQuestions(rows) {
       <td>${esc(q.question_text)}</td>
       <td>${q.answer_source === "cms_menu"
             ? `<span class="tag ok">응답</span> ${esc(q.matched_menu_title)}`
-            : '<span class="tag miss">답변 불가</span>'}</td>
+            : q.answer_source === "low_confidence"
+              ? `<span class="tag weak">약한 매칭</span> ${esc(q.matched_menu_title)} (${q.match_score})`
+              : '<span class="tag miss">답변 불가</span>'}</td>
       <td class="muted">${esc(q.verdict)}</td>
     </tr>`).join("") + `</tbody></table>`;
 }
