@@ -1,46 +1,50 @@
-# HANAAI
+# HANAAI — AI 키오스크 CMS 콘텐츠 추천 시스템
 
-키오스크 운영 데이터를 수집해 → 필요한 기능을 도출하고 → 코드를 생성하고 → 배포까지 잇는
-자율 개선 루프.
+키오스크 사용자 질문 데이터를 AI가 분석하여 반복적으로 발생하는 유용한 질문을 찾고,
+새로운 FAQ·안내 메뉴를 자동으로 제안해 관리자가 CMS에 손쉽게 반영하도록 하는 시스템.
 
 ```
-키오스크 ──이벤트──► 데이터 레이어 ──집계──► 탐지기 ──후보──► 분석 Agent
-                          ▲                                      │
-                          │                                   제안 (사람 승인)
-                     배포 결과 검증                                 │
-                          │                                      ▼
-                    CI/CD ◄── PR ◄── 개발 Agent ◄── orchestrator ◄┘
+사용자 질문 ──► 질문 로그 DB ──► 분석(분류·묶기·빈도) ──► AI 메뉴 초안
+                                                            │
+       키오스크가 답하기 시작 ◄── CMS 반영 ◄── 관리자 [추가/수정/무시]
 ```
-
-| 과제 | 내용 | 상태 |
-|---|---|---|
-| 1 | 키오스크 주변장치·이벤트 로그 DB 및 운영 시스템 | 뼈대 동작 |
-| 2 | 수집 데이터 기반 필요 기능 분석 Agent | **탐지기 5개 + Claude CLI 연결 완료**, 백엔드 교체 가능 |
-| 3 | 분석 내용 기반 개발 Agent | 가드레일·워크스페이스 동작, 구현 루프는 M5 |
-| 4 | Agent 연결용 CI/CD | CI 동작, 카나리 배포는 M6 |
 
 ## 빠른 시작
 
 ```bash
-docker compose up -d
-cp .env.example .env
 pip install -e ".[dev]"
+cp .env.example .env
 
 alembic upgrade head
-python scripts/seed.py --demo
+python scripts/seed.py                                    # 고객사·키오스크·기본 메뉴
+python scripts/simulate_questions.py --days 7 --per-day 55 # 가상 질문 생성
 
-uvicorn services.ops_api.main:app --port 8000 --reload   # 콘솔 http://localhost:8000/
-uvicorn services.ingest.main:app --port 8001 --reload
+uvicorn services.ops_api.main:app   --port 8000 --reload  # 관리자 콘솔
+uvicorn services.kiosk_api.main:app --port 8001 --reload  # 가상 키오스크
 ```
 
-DB 가 없어도 `pytest` 는 통과한다.
+- **가상 키오스크** <http://localhost:8001/> — 질문을 입력해 보세요
+- **관리자 콘솔** <http://localhost:8000/> — [분석 실행] 을 누르면 AI가 추천을 만듭니다
 
-분석 Agent 는 로그인된 Claude CLI 를 그대로 쓴다 (`claude login` 외 설정 불필요).
-기업 배포에서는 `HANAAI_ANALYST_BACKEND=claude-api` 로 교체한다.
+분석 AI는 로그인된 Claude CLI를 그대로 씁니다 (`claude login` 외 설정 불필요).
+기업 배포에서는 `HANAAI_ANALYST_BACKEND=claude-api` 로 교체합니다.
+
+DB 없이도 `pytest` 는 통과합니다. DB가 필요한 테스트는 `-m db` 로 분리되어 있습니다.
+
+## 구성
+
+| 경로 | 내용 |
+|---|---|
+| `db/migrations/` | 스키마 (단일 원본) |
+| `services/kiosk_api/` | 화면 A — 가상 키오스크, 질문 응답·로그 적재 |
+| `services/ops_api/` | 화면 B — 관리자 CMS, 승인 게이트, 분석 실행 |
+| `agents/analyst/` | 분류·묶기·커버리지(규칙) + 메뉴 초안 생성(LLM) |
+| `agents/contracts/` | AI 출력 계약 |
+| `scripts/` | 시드 · 질문 시뮬레이터 · 분석 실행 |
 
 ## 문서
 
-- [설계 문서](docs/architecture.md) — 아키텍처, 스키마, 로드맵, 열린 질문
-- [작업 규칙](CLAUDE.md) — 로컬 실행, 지켜야 할 제약, 현재 구현 상태
+- [설계 문서](docs/architecture.md) — 흐름, 데이터, 분석 2단계, 알려진 한계
+- [작업 규칙](CLAUDE.md) — 로컬 실행, 지켜야 할 제약
 
 스택: Python 3.11+ / FastAPI / PostgreSQL 16 / SQLAlchemy 2.x + Alembic

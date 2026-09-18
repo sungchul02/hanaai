@@ -1,14 +1,17 @@
 -- 0001 initial — 되돌리기
-DROP TABLE IF EXISTS event_rollup_hourly;
-DROP TABLE IF EXISTS event_quarantine;
-DROP TABLE IF EXISTS event;              -- 파티션도 함께 삭제된다
-DROP FUNCTION IF EXISTS ensure_event_partition(DATE);
-DROP TABLE IF EXISTS event_type;
-DROP TABLE IF EXISTS peripheral;
-DROP TABLE IF EXISTS peripheral_model;
+ALTER TABLE question_log DROP CONSTRAINT IF EXISTS question_log_cluster_fk;
+DROP TABLE IF EXISTS content_proposal;
+DROP TABLE IF EXISTS question_cluster_member;
+DROP TABLE IF EXISTS question_cluster;
+DROP TABLE IF EXISTS analysis_run;
+DROP TABLE IF EXISTS question_log;
+DROP TABLE IF EXISTS cms_menu;
 DROP TABLE IF EXISTS kiosk;
 DROP TABLE IF EXISTS site;
 DROP TABLE IF EXISTS customer;
-DROP TYPE IF EXISTS peripheral_kind;
+DROP TYPE IF EXISTS proposal_status;
+DROP TYPE IF EXISTS menu_status;
+DROP TYPE IF EXISTS answer_source;
+DROP TYPE IF EXISTS question_verdict;
 DROP TYPE IF EXISTS kiosk_status;
 DROP FUNCTION IF EXISTS set_updated_at();

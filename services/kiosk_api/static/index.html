@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>안내 키오스크</title>
+<style>
+  :root {
+    --bg: #0d1b2a;
+    --panel: #ffffff;
+    --ink: #1a202c;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --brand: #1d4ed8;
+    --ok: #047857;
+    --miss: #b45309;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink);
+    font-family: "Pretendard", -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  .kiosk {
+    width: 100%; max-width: 720px; background: var(--panel); border-radius: 20px;
+    box-shadow: 0 24px 60px rgba(0,0,0,.35); overflow: hidden;
+  }
+  header {
+    background: var(--brand); color: #fff; padding: 18px 24px;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  header h1 { margin: 0; font-size: 19px; font-weight: 650; }
+  header .spacer { flex: 1; }
+  header select {
+    background: rgba(255,255,255,.15); color: #fff; border: 1px solid rgba(255,255,255,.35);
+    border-radius: 8px; padding: 5px 9px; font-size: 13px; font-family: inherit;
+  }
+  header select option { color: #111; }
+  main { padding: 26px 24px 30px; }
+  .prompt { font-size: 22px; font-weight: 650; margin: 0 0 4px; }
+  .hint { color: var(--muted); font-size: 13.5px; margin: 0 0 18px; }
+  .askbox { display: flex; gap: 10px; }
+  input[type=text] {
+    flex: 1; font-size: 19px; padding: 16px 18px; border: 2px solid var(--line);
+    border-radius: 12px; font-family: inherit; outline: none;
+  }
+  input[type=text]:focus { border-color: var(--brand); }
+  button {
+    font-family: inherit; font-size: 17px; font-weight: 600; cursor: pointer;
+    border: 0; border-radius: 12px; padding: 0 26px; background: var(--brand); color: #fff;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+
+  .answer { margin-top: 20px; border: 2px solid var(--line); border-radius: 14px; padding: 20px; display: none; }
+  .answer.show { display: block; }
+  .answer .q { color: var(--muted); font-size: 14px; }
+  .answer .a { font-size: 19px; line-height: 1.6; margin-top: 10px; white-space: pre-wrap; }
+  .answer .src { margin-top: 14px; font-size: 12.5px; display: flex; gap: 8px; align-items: center; }
+  .badge { padding: 2px 9px; border-radius: 20px; font-weight: 600; }
+  .badge.ok   { background: #d1fae5; color: var(--ok); }
+  .badge.miss { background: #fef3c7; color: var(--miss); }
+
+  .menus { margin-top: 26px; }
+  .menus h2 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 0 0 10px; letter-spacing: .03em; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    background: #f3f4f6; border: 1px solid var(--line); border-radius: 20px;
+    padding: 7px 14px; font-size: 14px; cursor: pointer;
+  }
+  .chip:hover { border-color: var(--brand); color: var(--brand); }
+  .empty { color: var(--muted); font-size: 14px; }
+  .note {
+    margin-top: 22px; padding: 12px 14px; background: #f9fafb; border-radius: 10px;
+    color: var(--muted); font-size: 12.5px; line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+<div class="kiosk">
+  <header>
+    <h1>무엇을 도와드릴까요?</h1>
+    <span class="spacer"></span>
+    <select id="kiosk" onchange="loadMenus()"></select>
+  </header>
+
+  <main>
+    <p class="prompt">궁금한 것을 입력해 주세요</p>
+    <p class="hint">예: "주차장 어디예요?" · "화장실 어디예요?" · "몇 시까지 해요?"</p>
+
+    <div class="askbox">
+      <input type="text" id="q" placeholder="질문을 입력하세요" autocomplete="off"
+             onkeydown="if(event.key==='Enter') send()">
+      <button id="btn" onclick="send()">질문</button>
+    </div>
+
+    <div class="answer" id="answer">
+      <div class="q" id="asked"></div>
+      <div class="a" id="reply"></div>
+      <div class="src" id="src"></div>
+    </div>
+
+    <div class="menus">
+      <h2>지금 안내할 수 있는 항목</h2>
+      <div class="chips" id="menus"></div>
+    </div>
+
+    <div class="note">
+      이 화면은 실제 키오스크 하드웨어 대신 쓰는 시연용입니다.
+      입력한 질문과 답변은 전부 기록되며, 답하지 못한 질문이 쌓이면
+      관리자 콘솔에서 AI가 새 안내 메뉴를 추천합니다.
+    </div>
+  </main>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const sessionId = crypto.randomUUID();
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+async function loadKiosks() {
+  const list = await api("/v1/kiosks");
+  $("kiosk").innerHTML = list.map(s => `<option>${esc(s)}</option>`).join("");
+  await loadMenus();
+}
+
+async function loadMenus() {
+  const serial = $("kiosk").value;
+  if (!serial) return;
+  const menus = await api(`/v1/menus?kiosk_serial=${encodeURIComponent(serial)}`);
+  $("menus").innerHTML = menus.length
+    ? menus.map(m => `<span class="chip" onclick="fill('${esc(m.title)}')">${esc(m.title)}</span>`).join("")
+    : '<span class="empty">등록된 안내 항목이 없습니다.</span>';
+}
+
+function fill(text) { $("q").value = text; $("q").focus(); }
+
+async function send() {
+  const question = $("q").value.trim();
+  if (!question) return;
+  $("btn").disabled = true;
+  try {
+    const out = await api("/v1/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kiosk_serial: $("kiosk").value, question, session_id: sessionId
+      })
+    });
+    $("asked").textContent = "Q. " + question;
+    $("reply").textContent = out.answer;
+    const ok = out.answer_source === "cms_menu";
+    $("src").innerHTML = ok
+      ? `<span class="badge ok">안내 완료</span> <span>메뉴: ${esc(out.matched_menu_title)}</span>`
+      : `<span class="badge miss">답변 불가</span> <span>이 질문은 기록되어 AI 추천 대상이 됩니다</span>`;
+    $("answer").classList.add("show");
+    $("q").value = "";
+  } catch (e) {
+    $("asked").textContent = "";
+    $("reply").textContent = "오류가 발생했습니다: " + e.message;
+    $("src").innerHTML = "";
+    $("answer").classList.add("show");
+  } finally {
+    $("btn").disabled = false;
+    $("q").focus();
+  }
+}
+
+loadKiosks();
+</script>
+</body>
+</html>

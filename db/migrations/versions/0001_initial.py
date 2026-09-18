@@ -1,4 +1,4 @@
-"""initial — 데이터 레이어
+"""initial — AI 키오스크 CMS 콘텐츠 추천 시스템
 
 Revision ID: 0001
 Revises:

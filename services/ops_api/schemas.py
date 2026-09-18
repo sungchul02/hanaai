@@ -1,118 +1,123 @@
 from __future__ import annotations
 
 import datetime as dt
-import uuid
 from decimal import Decimal
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class KioskSummary(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    kiosk_id: int
-    serial_no: str
-    site_id: int
-    model: str
-    status: str
-    app_version: str | None
-    last_seen_at: dt.datetime | None
-
-
-class PeripheralSummary(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    peripheral_id: int
-    slot: str
-    kind: str
-    vendor: str
-    model_name: str
-    driver_version: str
-    firmware_version: str | None
-    attached_at: dt.datetime
-
-
-class KioskDetail(KioskSummary):
-    customer_id: int
-    customer_code: str
-    customer_name: str
-    site_code: str
-    site_name: str
-    os_version: str | None
-    installed_at: dt.date | None
-    peripherals: list[PeripheralSummary]
-
-
-class EventRow(BaseModel):
-    occurred_at: dt.datetime
-    kiosk_serial: str
-    type: str
-    severity: int
-    error_code: str | None
-    duration_ms: int | None
-    session_id: uuid.UUID | None
-    payload: dict[str, Any]
-
-
-class PeripheralHealthRow(BaseModel):
-    """장치 '모델' 단위 집계. 개체 단위로는 답할 수 없는 질문에 답한다."""
-
-    peripheral_model_id: int
-    kind: str
-    vendor: str
-    model_name: str
-    driver_version: str
-    installed_count: int
-    event_count: int
-    error_count: int
-    error_rate: float | None
-
-
-class FleetSummary(BaseModel):
-    """대시보드 상단 카드용 집계. 화면 한 번에 필요한 수치를 한 쿼리로 모은다."""
-
-    customers: int
-    sites: int
-    kiosks: int
-    kiosks_stale: int
-    events_24h: int
-    errors_24h: int
-    quarantined_24h: int
-    proposals_pending: int
-    proposals_approved: int
-
-
 class CustomerRow(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     customer_id: int
     code: str
     name: str
+
+
+class DashboardSummary(BaseModel):
+    """화면 상단 카드. 문서의 '최근 질문 수 / 유효·불필요 질문 수 / 많이 나온 주제'."""
+
+    questions_7d: int
+    questions_today: int
+    answered_7d: int
+    unanswered_7d: int
+    answer_rate_7d: float | None
+    junk_7d: int
+    menus_published: int
+    menus_from_ai: int
+    proposals_pending: int
+    last_analysis_at: dt.datetime | None
+
+
+class MenuRow(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    menu_id: int
+    code: str
+    title: str
+    body: str
+    keywords: list[str]
     status: str
-    sites: int
-    kiosks: int
+    origin: str
+    updated_at: dt.datetime
 
 
-class ProposalSummary(BaseModel):
+class QuestionRow(BaseModel):
+    question_id: int
+    asked_at: dt.datetime
+    kiosk_serial: str
+    question_text: str
+    answer_source: str
+    matched_menu_title: str | None
+    verdict: str
+
+
+class TopicRow(BaseModel):
+    """많이 나온 주제. 분석이 묶어놓은 결과를 그대로 보여준다."""
+
+    cluster_id: int
+    label: str
+    size: int
+    unanswered: int
+    keywords: list[str]
+    covered_menu_title: str | None
+    has_proposal: bool
+
+
+class ProposalRow(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     proposal_id: int
     created_at: dt.datetime
     title: str
-    scope: str
+    body: str
+    reason: str
+    keywords: list[str]
+    sample_questions: list[str]
+    question_count: int
     impact_score: Decimal
+    confidence: Decimal
     status: str
-
-
-class ProposalDetail(ProposalSummary):
-    body: dict[str, Any]
-    analysis_run_id: int
     reviewed_by: str | None
     reviewed_at: dt.datetime | None
-    review_note: str | None
+    applied_menu_id: int | None
 
 
-class ReviewDecision(BaseModel):
+class ApproveIn(BaseModel):
+    """[추가하기] 또는 [수정] 후 추가.
+
+    title/body/keywords 를 주면 관리자가 고친 것으로 보고 status 를 edited 로 남긴다.
+    AI 초안을 그대로 썼는지 손봤는지가 나중에 품질 지표가 된다.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
-    reviewer: str = Field(min_length=1, description="승인자 식별자")
+    reviewer: str = Field(min_length=1)
+    title: str | None = Field(default=None, min_length=2, max_length=40)
+    body: str | None = Field(default=None, min_length=10, max_length=500)
+    keywords: list[str] | None = None
     note: str | None = None
+
+
+class IgnoreIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reviewer: str = Field(min_length=1)
+    note: str | None = None
+
+
+class RunAnalysisIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    customer_id: int
+    days: int = Field(default=7, ge=1, le=90)
+    backend: str | None = None
+
+
+class RunAnalysisOut(BaseModel):
+    analysis_run_id: int
+    backend: str
+    questions_seen: int
+    clusters_found: int
+    proposals_made: int
+    error: str | None
