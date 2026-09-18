@@ -998,14 +998,24 @@ async function runTriage() {
     showError(out.error || "");
     picks = new Set();
     await loadAll();
-    alert(
-      `질문 분류 완료\n\n` +
-      `질문 ${out.questions_seen}건 → 주제 ${out.clusters_found}개\n` +
-      `  · ${out.stats.skipped_covered || 0}개는 기존 메뉴가 이미 답하고 있어 제외\n` +
-      `  · ${out.stats.skipped_small || 0}개는 질문이 ${out.stats.min_cluster_size}건 미만이라 제외\n\n` +
-      `AI가 판단한 주제 ${out.stats.triage_candidates || 0}개\n` +
-      `  · ${out.kept}개 통과 · ${out.dropped}개 제외 (안내 가치 없음)`
-    );
+    const lines = [
+      `질문 분류 완료`, ``,
+      `질문 ${out.questions_seen}건 → 주제 ${out.clusters_found}개`,
+      `  · ${out.stats.skipped_covered || 0}개는 기존 메뉴가 이미 답하고 있어 제외`,
+      `  · ${out.stats.skipped_small || 0}개는 질문이 ${out.stats.min_cluster_size}건 미만이라 제외`,
+      ``,
+    ];
+    if (out.stats.triage_candidates) {
+      lines.push(`AI가 판단한 주제 ${out.stats.triage_candidates}개`,
+                 `  · ${out.kept}개 통과 · ${out.dropped}개 제외 (안내 가치 없음)`);
+    } else {
+      // 0 건일 때가 제일 헷갈린다. 눌렀는데 아무 일도 안 일어난 것처럼 보인다.
+      lines.push(`AI에게 보낼 주제가 없었습니다.`, ``,
+                 `남은 주제가 전부 질문 ${out.stats.min_cluster_size}건 미만이거나,`,
+                 `기존 메뉴가 이미 답하고 있습니다.`,
+                 `같은 것을 묻는 사람이 더 쌓여야 새 안내를 만들 가치가 생깁니다.`);
+    }
+    alert(lines.join("\n"));
     if (out.kept) { view = "pick"; }
   } catch (e) { showError(e.message); }
   finally { setBusy(null); }
