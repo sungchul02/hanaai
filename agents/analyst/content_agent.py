@@ -20,7 +20,7 @@ from typing import Any, Protocol
 import structlog
 
 from agents.analyst import textutil
-from agents.analyst.placeholder import clean_body
+from agents.analyst.placeholder import clean_body, prune_keywords
 from agents.analyst.verify import TARGET_COVERAGE, VerifyResult, as_menu, verify_draft
 from agents.contracts.proposal import ContentProposal
 from services.common.models import CmsMenu
@@ -145,12 +145,33 @@ class ContentAgent:
         fixed: list[ContentProposal] = []
         for proposal in proposals:
             others = [t for t in titles if t != proposal.title]
-            body, dropped = clean_body(proposal.body, others, has_siblings=len(proposals) > 1)
+            body, dropped = clean_body(
+                proposal.body, others,
+                has_siblings=len(proposals) > 1, own_title=proposal.title,
+            )
             if not dropped:
                 fixed.append(proposal)
                 continue
             log.info("placeholder_dropped", title=proposal.title, sentences=dropped)
             fixed.append(proposal.model_copy(update={"body": body}))
+        return self._tidy_keywords(fixed)
+
+    def _tidy_keywords(self, proposals: list[ContentProposal]) -> list[ContentProposal]:
+        """옆 메뉴가 다루는 항목의 키워드를 뺀다.
+
+        메뉴는 쪼갰는데 키워드는 안 쪼개진다. '주차장 운영시간' 에 '주차 가능 대수' 가
+        들어 있어서 규모 질문까지 시간 안내가 잡았다. 쪼갠 의미가 사라진다.
+        """
+        titles = [p.title for p in proposals]
+        fixed: list[ContentProposal] = []
+        for proposal in proposals:
+            others = [t for t in titles if t != proposal.title]
+            keywords, dropped = prune_keywords(proposal.title, list(proposal.keywords), others)
+            if not dropped:
+                fixed.append(proposal)
+                continue
+            log.info("keywords_pruned", title=proposal.title, dropped=dropped)
+            fixed.append(proposal.model_copy(update={"keywords": keywords}))
         return fixed
 
     def _verify(self, proposal: ContentProposal, questions: list[str]) -> VerifyResult:

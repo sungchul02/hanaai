@@ -115,7 +115,32 @@ def score_menu(question: str, menu: CmsMenu) -> tuple[float, float]:
 
     primary_score = _coverage(tokens, primary)
     total = max(primary_score, _coverage(tokens, primary | _body_terms(menu)), keyword_score)
-    return total, primary_score
+    return total, primary_score + _intent_bonus(question, menu)
+
+
+# 항목이 어긋날 때 주제 적합도를 얼마나 올리고 내릴지.
+# 전체 점수(total)에는 손대지 않는다. 임계값 판단은 '질문을 얼마나 덮는가' 로만 해야 하고,
+# 이 보정은 같은 주제의 메뉴끼리 어느 항목인지 가를 때만 쓴다.
+INTENT_BONUS = 0.2
+
+
+def _intent_bonus(question: str, menu: CmsMenu) -> float:
+    """질문이 묻는 항목과 메뉴가 다루는 항목이 맞는가.
+
+    메뉴를 항목별로 쪼개고 나서 필요해졌다. "주차장 몇 시까지 해요?" 의 내용어는
+    '주차장' 하나뿐이라 '주차장 규모' 와 '주차장 운영시간' 이 똑같이 1.00 으로 걸린다.
+    실제로 규모 안내가 시간 질문에 답했다.
+
+    메뉴 쪽은 제목만 본다. 키워드는 모델이 자기 주제가 아닌 것까지 적어 넣는다 —
+    '주차장 규모' 메뉴에 '주차 요금' 키워드가 들어 있었다. 제목이 그 메뉴의 진짜 주제다.
+    """
+    asked = textutil.intents(question)
+    if not asked:
+        return 0.0
+    covers = textutil.intents(menu.title)
+    if not covers:
+        return 0.0
+    return INTENT_BONUS if asked & covers else -INTENT_BONUS
 
 
 def find_answer(question: str, menus: list[CmsMenu]) -> tuple[CmsMenu | None, float, str]:

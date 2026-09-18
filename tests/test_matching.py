@@ -177,3 +177,34 @@ def test_말투_키워드는_아무_질문이나_잡지_않는다() -> None:
 )
 def test_말투와_주제어를_가른다(word: str, filler: bool) -> None:
     assert textutil.is_filler(word) is filler
+
+
+# --------------------------------------------- 질문이 '무엇을' 묻는가 (항목 구분)
+
+def test_시간을_묻는데_규모_안내가_답하지_않는다() -> None:
+    """메뉴를 항목별로 쪼개고 나서 생긴 문제. "주차장 몇 시까지 해요?" 의 내용어는
+    '주차장' 하나뿐이라 규모와 운영시간이 똑같이 1.00 으로 걸렸고, 순서상 먼저 있는
+    규모 안내가 시간 질문에 답했다."""
+    size = _menu(
+        "주차장 규모", "천안시청 부설 주차장은 총 344면입니다.", ["주차장 규모", "주차 면수"]
+    )
+    hours = _menu("주차장 운영시간", "평일 08시부터 18시까지 운영합니다.", ["주차 운영시간"])
+    hours.menu_id = 100
+
+    found, _score, verdict = find_answer("주차장 몇 시까지 해요?", [size, hours])
+    assert verdict == "cms_menu"
+    assert found is not None and found.title == "주차장 운영시간"
+
+
+@pytest.mark.parametrize(
+    ("question", "expected"),
+    [
+        ("주차장 몇 시까지 해요?", {"시간"}),
+        ("주차 요금 얼마예요?", {"요금"}),
+        ("화장실 어디예요?", {"위치"}),
+        ("여권과 전화번호 알려주세요", {"연락"}),
+        ("6층에 뭐 있어요?", set()),  # 판단할 수 없으면 비운다
+    ],
+)
+def test_질문이_무엇을_묻는지_읽는다(question: str, expected: set[str]) -> None:
+    assert textutil.intents(question) == expected

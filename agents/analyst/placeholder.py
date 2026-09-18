@@ -84,7 +84,10 @@ def _mentions(sentence_tokens: set[str], title_tokens: set[str]) -> bool:
 
 
 def clean_body(
-    body: str, sibling_titles: list[str], has_siblings: bool = True
+    body: str,
+    sibling_titles: list[str],
+    has_siblings: bool = True,
+    own_title: str = "",
 ) -> tuple[str, list[str]]:
     """옆 메뉴가 이미 다루는 내용을 '모른다' 고 쓴 문장을 지운다.
 
@@ -98,6 +101,8 @@ def clean_body(
         return body, []
 
     titles = [_subject_tokens(t) for t in sibling_titles]
+    own_intents = textutil.intents(own_title)
+    sibling_intents = [textutil.intents(t) for t in sibling_titles]
     kept: list[str] = []
     dropped: list[str] = []
 
@@ -107,6 +112,12 @@ def clean_body(
             continue
         tokens = _subject_tokens(sentence)
         covered = any(_mentions(tokens, title) for title in titles)
+        # 낱말이 안 겹쳐도 '무엇을 묻는 말인가' 로는 잡힌다.
+        # "주차 가능 대수는 (확인 후 입력 필요)" 와 '주차장 규모' 는 글자가 하나도 안 겹치지만
+        # 둘 다 규모를 말한다. 이 문장이 남아 있으면 대수 질문을 운영시간 메뉴가 가로챈다.
+        asked = textutil.intents(sentence)
+        if asked and not (asked & own_intents) and any(asked & other for other in sibling_intents):
+            covered = True
         # "나머지 층은..." 처럼 스스로 다른 메뉴를 가리키는 문장. 그 메뉴가 있으면 군더더기다.
         cross = has_siblings and any(marker in sentence for marker in _CROSS_REFERENCE)
         if covered or cross:
@@ -119,3 +130,36 @@ def clean_body(
     if len(cleaned) < MIN_BODY:
         return body, []
     return cleaned, dropped
+
+
+def prune_keywords(
+    title: str, keywords: list[str], sibling_titles: list[str]
+) -> tuple[list[str], list[str]]:
+    """옆 메뉴가 다루는 항목의 키워드를 뺀다.
+
+    메뉴는 쪼갰는데 키워드는 안 쪼개진다. '주차장 운영시간' 메뉴에
+    '주차 가능 대수', '주차요금', '카드 결제' 가 들어 있었다.
+    그러면 어느 메뉴나 아무 주차 질문이나 잡아서, 쪼갠 의미가 사라진다.
+
+    판단은 '무엇을 묻는 말인가'(textutil.intents)로 한다. 낱말 겹침으로는 안 된다 —
+    '대수' 와 '규모' 는 같은 것을 가리키지만 글자가 하나도 안 겹친다.
+
+    양쪽 의도를 모두 알 때만 손댄다. 모르면 남긴다. 키워드를 잘못 빼면
+    답할 수 있는 질문을 못 잡게 되고, 그건 남겨두는 것보다 나쁘다.
+    """
+    own = textutil.intents(title)
+    if not own:
+        return keywords, []
+    sibling_intents = [textutil.intents(t) for t in sibling_titles]
+
+    kept: list[str] = []
+    dropped: list[str] = []
+    for keyword in keywords:
+        asked = textutil.intents(keyword)
+        # 의도가 어긋나고, 그 의도를 실제로 다루는 옆 메뉴가 있을 때만 뺀다
+        if asked and not (asked & own) and any(asked & other for other in sibling_intents):
+            dropped.append(keyword)
+        else:
+            kept.append(keyword)
+    # 전부 빠지면 손대지 않는다. 키워드 없는 메뉴는 아무것도 못 잡는다.
+    return (kept or keywords), (dropped if kept else [])
