@@ -31,6 +31,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from db.seeds.day_one_questions import QUESTIONS as DAY_ONE
+from db.seeds.day_one_questions import summary as day_one_summary
 from db.seeds.expected_questions import interleaved, summary
 from services.common.db import get_sessionmaker
 from services.common.models import Kiosk, QuestionLog, Site
@@ -53,10 +55,20 @@ def main() -> None:
     parser.add_argument("question", nargs="*", help="직접 던질 질문. 없으면 예상 질문 목록 전체")
     parser.add_argument("--limit", type=int, default=0, help="앞에서 N건만")
     parser.add_argument("--repeat", type=int, default=1, help="각 질문을 N회씩 던진다")
+    parser.add_argument(
+        "--scenario", choices=("expected", "day-one"), default="expected",
+        help="expected=파이프라인 세 갈래 표본, day-one=설치 첫날 실제 트래픽에 가까운 순서",
+    )
     parser.add_argument("--seed", type=int, default=20260918, help="시각 분포 난수 씨앗")
     args = parser.parse_args()
 
-    questions = args.question or interleaved()
+    if args.question:
+        questions = args.question
+    elif args.scenario == "day-one":
+        # 들어온 순서 그대로 쓴다. 섞으면 묶기 결과가 달라진다.
+        questions = list(DAY_ONE)
+    else:
+        questions = interleaved()
     if args.limit > 0:
         questions = questions[: args.limit]
     # 반복은 목록을 통째로 되돌린다. 같은 질문을 연달아 넣으면 시각이 뭉쳐서
@@ -70,8 +82,22 @@ def main() -> None:
         kiosk = _pick_kiosk(session)
         counts = {"cms_menu": 0, "low_confidence": 0, "fallback": 0}
 
-        for text_value in questions:
+        # day-one 은 '설치 첫날' 이라 하루 안에서 순서대로 놓는다.
+        # 무작위로 흩으면 두 가지가 깨진다. 첫날이 아니게 되고,
+        # 시나리오에 잡아둔 질문 순서도 사라진다 — 묶기는 순서에 의존한다.
+        one_day = args.scenario == "day-one" and not args.question
+        # DB 는 UTC 로 저장하고 화면이 한국 시간으로 보여준다.
+        # 한국 09시 개청은 UTC 00시다. 여기서 +9 를 하면 화면에 저녁 6시로 찍힌다.
+        opened = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        span = dt.timedelta(hours=9) / max(len(questions), 1)
+
+        for index, text_value in enumerate(questions):
             row = ask(session, kiosk, text_value)
+            if one_day:
+                # 09시 개청부터 18시 마감까지 고르게. 순서가 그대로 시각이 된다.
+                row.asked_at = opened + span * index
+                counts[row.answer_source] = counts.get(row.answer_source, 0) + 1
+                continue
             # 최근 7일 안, 업무시간대(09~18시)에 흩어 놓는다.
             offset = dt.timedelta(
                 days=rng.uniform(0.1, 6.8), hours=rng.uniform(0, 9), minutes=rng.uniform(0, 59)
@@ -83,7 +109,7 @@ def main() -> None:
         total = session.query(QuestionLog).count()
 
     if not args.question:
-        print(summary())
+        print(day_one_summary() if args.scenario == "day-one" else summary())
     print(f"던진 질문 {len(questions)}건 · 누적 {total}건")
     print(
         f"  안내 완료 {counts.get('cms_menu', 0)} · "

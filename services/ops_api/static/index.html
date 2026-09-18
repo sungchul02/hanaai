@@ -367,11 +367,36 @@ function renderHome() {
 
 let picks = new Set();
 
+// 분류 결과 요약. alert 는 한 번 뜨고 사라져서 다시 볼 수가 없었다.
+// 실제로 "분류를 눌렀는데 기록을 다시 볼 수 없다" 는 말을 들었고,
+// 그래서 같은 버튼을 네 번 눌러 분석이 네 개 쌓였다. 기록은 화면에 남아 있어야 한다.
+function triageSummary(r) {
+  const st = r.stats || {};
+  const run = (state.runs || []).find(x => x.analysis_run_id === r.analysis_run_id) || state.run;
+  const cost = run?.llm_calls ? ` · LLM ${run.llm_calls}회 $${run.cost_usd?.toFixed(2)}` : "";
+  return `<div class="box" style="margin:0 0 14px">
+    <b>분석 #${r.analysis_run_id}</b>
+    <span class="muted">${run ? when(run.finished_at || run.started_at) : ""}${cost}</span>
+    <table style="margin-top:8px"><tbody>
+      <tr><td>질문</td><td class="num">${r.questions_seen}건</td>
+          <td class="muted">키오스크에 들어온 것 전부</td></tr>
+      <tr><td>주제로 묶임</td><td class="num">${r.clusters_found}개</td>
+          <td class="muted">비슷한 질문끼리 묶은 결과</td></tr>
+      <tr><td>규칙이 제외</td><td class="num">${(st.skipped_small || 0) + (st.skipped_covered || 0)}개</td>
+          <td class="muted">질문 ${st.min_cluster_size}건 미만 ${st.skipped_small || 0}개 ·
+              기존 메뉴가 답함 ${st.skipped_covered || 0}개</td></tr>
+      <tr><td><b>AI가 판단</b></td><td class="num"><b>${st.triage_candidates || 0}개</b></td>
+          <td class="muted">통과 ${st.triage_kept || 0}개 · 안내 가치 없어 제외 ${st.triage_dropped || 0}개</td></tr>
+    </tbody></table>
+  </div>`;
+}
+
 function renderPick() {
   const r = state.report;
   if (!r || !r.topics.length) {
     return `<h2>답할 주제 고르기</h2>
-      <div class="panel"><div class="empty">아직 분류한 결과가 없습니다.</div></div>`;
+      <div class="panel"><div class="empty">아직 분류한 결과가 없습니다.</div></div>
+      <div class="actions"><button onclick="go('home')">← 홈으로</button></div>`;
   }
   const groups = {};
   for (const t of r.topics) (groups[t.category] ||= []).push(t);
@@ -388,6 +413,7 @@ function renderPick() {
 
   return `<h2>② 답할 주제 고르기
       <span class="sub muted">고른 것만 답변을 만듭니다. 고르지 않으면 비용이 들지 않습니다</span></h2>
+    ${triageSummary(r)}
     <div class="panel">
       <table>
         <thead><tr>
@@ -430,6 +456,18 @@ function pickRow(t) {
   </tr>`;
 }
 
+// 지난 분석의 중간 보고를 다시 연다. 분류를 여러 번 돌리면 이전 기록이
+// 홈에서 밀리는데, 그렇다고 사라져서는 안 된다.
+async function openReport(runId) {
+  try {
+    state.report = await api(`/v1/analysis/${runId}/report`);
+    const open = state.report.topics.filter(t => t.review_status !== "answered");
+    picks = new Set(open.filter(t => t.review_status === "approved").map(t => t.cluster_id));
+    state.pickRun = runId;
+    go("pick");
+  } catch (e) { showError(e.message); }
+}
+
 function togglePick(id, on) {
   if (on) picks.add(id); else picks.delete(id);
   const el = $("pickcount");
@@ -450,7 +488,7 @@ async function savePicks() {
   const chosen = all.filter(id => picks.has(id));
   const dropped = all.filter(id => !picks.has(id));
   try {
-    const run = state.run.analysis_run_id;
+    const run = state.report.analysis_run_id;
     if (chosen.length) {
       await api(`/v1/analysis/${run}/review`, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -855,7 +893,7 @@ function renderRuns() {
 
   const table = rows.length ? `<table><thead><tr>
       <th>시각</th><th>상태</th><th class="num">질문</th><th class="num">주제</th>
-      <th class="num">초안</th><th>LLM</th>
+      <th class="num">초안</th><th>LLM</th><th></th>
     </tr></thead><tbody>` + rows.map(r => `<tr>
       <td class="muted" style="white-space:nowrap">${when(r.finished_at || r.started_at)}</td>
       <td>${r.status === "succeeded" ? '<span class="tag ok">완료</span>'
@@ -866,6 +904,7 @@ function renderRuns() {
       <td class="num">${r.clusters_found}</td>
       <td class="num">${r.proposals_made}</td>
       <td class="muted">${r.llm_calls ? `${r.llm_calls}회 · $${r.cost_usd?.toFixed(2)}` : "—"}</td>
+      <td><button onclick="openReport(${r.analysis_run_id})">중간 보고</button></td>
     </tr>`).join("") + `</tbody></table>`
     : '<div class="empty">분석 이력이 없습니다.</div>';
 
@@ -887,10 +926,35 @@ function renderRuns() {
 
 // ------------------------------------------------------------------ 실행
 
+// 실행 중에는 다시 못 누르게 막는다.
+// 버튼 하나만 잠갔더니 파이프라인 막대로 또 눌려서 분석이 네 개 쌓였다.
+// 화면 어디서 부르든 막아야 한다.
+let busy = null;
+
+function setBusy(label) {
+  busy = label;
+  render();
+}
+
+function busyBanner() {
+  return busy ? `<div class="now-card" style="margin-bottom:16px">
+      <div class="step">진행 중</div>
+      <h3>${esc(busy)}</h3>
+      <p>끝나면 화면이 저절로 바뀝니다. 창을 닫지 마세요.</p>
+    </div>` : "";
+}
+
 // 1단계 — 싸다. 묶고 판단하고 갈래를 나눌 뿐 답변은 안 만든다.
 async function runTriage() {
-  const btn = $("act");
-  if (btn) { btn.disabled = true; btn.textContent = "분류 중..."; }
+  if (busy) return;
+  // 아직 고르지 않은 분석이 남아 있으면 먼저 알린다. 새로 돌리면 그 기록이 화면에서 밀린다.
+  if (state.waitingTopics) {
+    if (!confirm(
+      `아직 정하지 않은 주제가 ${state.waitingTopics}개 남아 있습니다 (분석 #${state.run.analysis_run_id}).\n\n` +
+      `새로 분류하면 이 기록은 [이력]에서만 볼 수 있게 됩니다.\n` +
+      `그래도 새로 분류할까요?`)) { go("pick"); return; }
+  }
+  setBusy("질문을 분류하고 있습니다");
   try {
     const out = await api("/v1/analysis/triage", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -907,16 +971,16 @@ async function runTriage() {
       `AI가 판단한 주제 ${out.stats.triage_candidates || 0}개\n` +
       `  · ${out.kept}개 통과 · ${out.dropped}개 제외 (안내 가치 없음)`
     );
-    if (out.kept) go("pick");
+    if (out.kept) { view = "pick"; }
   } catch (e) { showError(e.message); }
-  finally { render(); }
+  finally { busy = null; render(); }
 }
 
 // 2단계 — 비싸다. 고른 주제만 근거를 찾고 답변을 만든다.
 async function runGeneration() {
+  if (busy) return;
   if (!state.run) { showError("먼저 질문 분류를 실행하세요."); return; }
-  const btn = $("act");
-  if (btn) { btn.disabled = true; btn.textContent = "생성 중... (몇 분 걸립니다)"; }
+  setBusy("답변을 만들고 있습니다 (몇 분 걸립니다)");
   try {
     const out = await api(`/v1/analysis/${state.run.analysis_run_id}/generate`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
@@ -937,9 +1001,9 @@ async function runGeneration() {
       lines.push(`  · ${out.stats.blocked_duplicate}건은 이미 검토했거나 반영한 주제라 제외`);
     }
     alert(lines.join("\n"));
-    if (out.proposals_made) go("drafts");
+    if (out.proposals_made) { view = "drafts"; }
   } catch (e) { showError(e.message); }
-  finally { render(); }
+  finally { busy = null; render(); }
 }
 
 // ------------------------------------------------------------------ 데이터 적재
@@ -952,7 +1016,7 @@ const SCREENS = {
 
 function render() {
   renderNav();
-  $("screen").innerHTML = (SCREENS[view] || renderHome)();
+  $("screen").innerHTML = busyBanner() + (SCREENS[view] || renderHome)();
   if (view === "drafts") loadEvidenceForCurrent();
 }
 
@@ -971,7 +1035,10 @@ async function loadAll() {
     drafts = proposals;
 
     if (state.run) {
-      state.report = await api(`/v1/analysis/${state.run.analysis_run_id}/report`);
+      // 지난 분석 보고를 열어둔 상태면 그것을 유지한다. 자동 갱신이 덮어쓰면
+      // 보던 기록이 눈앞에서 최신 것으로 바뀐다.
+      const showing = (view === "pick" && state.pickRun) || state.run.analysis_run_id;
+      state.report = await api(`/v1/analysis/${showing}/report`);
       const open = state.report.topics.filter(t => t.review_status !== "answered");
       state.waitingTopics = open.filter(t => t.review_status === "pending_review").length;
       state.pickedTopics = open.filter(t => t.review_status === "approved").length;
@@ -1008,7 +1075,7 @@ async function loadAll() {
 // 다만 입력 중인 화면은 건드리지 않는다 — 고치던 문구가 날아간다.
 let lastCount = null;
 async function tick() {
-  if (view === "drafts" || editing) return;
+  if (busy || view === "drafts" || editing) return;
   const before = lastCount;
   await loadAll();
   lastCount = state.todo?.unanalyzed ?? lastCount;
