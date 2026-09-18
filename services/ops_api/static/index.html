@@ -84,6 +84,9 @@
   .pipe .t { font-weight: 600; margin-top: 2px; font-size: 13px; }
   .pipe .v { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 3px; }
   .pipe .s.now .t { color: var(--brand); }
+  .pipe .s.open { cursor: pointer; }
+  .pipe .s.open:hover { background: #f1f5f9; }
+  .pipe .s.now.open:hover { background: #dbeafe; }
 
   /* 지금 할 차례 — 화면에서 가장 크고 유일한 초점 */
   .now-card { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--brand);
@@ -254,16 +257,36 @@ function renderPipeline(now) {
     generate: r ? `초안 ${r.proposals_made || 0}건` : "—",
     approve: `대기 ${t.pending_review || 0}건`,
   };
+  // 각 칸을 눌러서 그 단계로 간다. 막대가 상태 표시이자 길잡이다.
+  //
+  // 처음에는 '지금 할 차례' 만 버튼으로 뒀더니, 초안이 밀려 있으면 ④ 가 먼저 뜨면서
+  // ② 로 들어가는 입구가 화면에서 통째로 사라졌다. 고를 주제가 남아 있는데도 갈 수 없었다.
+  // 단계가 동시에 열리는 일이 흔하므로 전부 열어둔다.
+  const WHERE = { triage: "runTriage()", pick: "go('pick')",
+                  generate: "runGeneration()", approve: "go('drafts')" };
   const order = STEPS.map(([k]) => k);
   const nowIndex = order.indexOf(now);
   return `<div class="pipe">` + STEPS.map(([key, label], i) => {
     const cls = key === now ? "now" : (nowIndex > i || nowIndex === -1 ? "done" : "");
-    return `<div class="s ${cls}">
+    const open = openSteps().has(key);
+    return `<div class="s ${cls} ${open ? "open" : ""}"
+                 ${open ? `onclick="${WHERE[key]}"` : ""}>
       <div class="n">${cls === "now" ? "지금 여기" : cls === "done" ? "끝남" : "대기"}</div>
-      <div class="t">${label}</div>
+      <div class="t">${label}${open && key !== now ? ' <span class="tag miss">할 일</span>' : ""}</div>
       <div class="v">${esc(detail[key])}</div>
     </div>`;
   }).join("") + `</div>`;
+}
+
+// 지금 누를 수 있는 단계들. 여러 개가 동시에 열려 있을 수 있다 —
+// 주제를 반만 고르고 답변을 만들면 ② 와 ④ 가 같이 열린다.
+function openSteps() {
+  const t = state.todo || {};
+  const open = new Set(["triage"]);            // 분류는 언제든 다시 돌릴 수 있다
+  if (state.waitingTopics) open.add("pick");
+  if (state.pickedTopics) open.add("generate");
+  if (t.pending_review) open.add("approve");
+  return open;
 }
 
 const NOW_CARD = {
@@ -311,8 +334,16 @@ function renderHome() {
   const card = NOW_CARD[now]();
   const t = state.todo || {};
 
-  // 곁가지 — 지금 차례는 아니지만 남아 있는 일
+  // 곁가지 — 지금 차례는 아니지만 남아 있는 일.
+  // 다른 단계도 여기 넣는다. 큰 카드는 하나여야 하지만, 갈 수 있는 곳을 숨기면 안 된다.
+  const open = openSteps();
   const side = [
+    ["② 답할 주제 고르기", open.has("pick") && now !== "pick" ? state.waitingTopics : 0,
+      "아직 정하지 않은 주제입니다", "go('pick')"],
+    ["③ 답변 생성", open.has("generate") && now !== "generate" ? state.pickedTopics : 0,
+      "고른 주제인데 아직 답을 안 만들었습니다", "runGeneration()"],
+    ["④ 초안 승인", open.has("approve") && now !== "approve" ? t.pending_review : 0,
+      "승인하면 키오스크에 바로 나갑니다", "go('drafts')"],
     ["문서 보강 필요", t.needs_document, "묻는데 근거 문서가 없어 답을 못 만듭니다", "go('gaps')"],
     ["중복 메뉴", t.duplicate_menus, "제목이 같은 메뉴. 키오스크는 하나만 답합니다", "go('dups')"],
   ].filter(([, n]) => n > 0);
