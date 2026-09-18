@@ -140,15 +140,16 @@ def bigrams(value: str) -> set[str]:
     return {value[i : i + 2] for i in range(len(value) - 1)}
 
 
-def content_tokens(value: str) -> set[str]:
-    """주제를 가르는 낱말만 남긴다.
+def content_token_list(value: str) -> list[str]:
+    """주제를 가르는 낱말만 **나온 순서대로** 남긴다.
 
     유사도를 글자 단위로만 재면 말투가 같은 다른 주제가 붙어버린다. 주제는 결국 명사가 가른다.
+    순서를 보존하는 이유는 head_affinity() 에 있다. 한국어 질문은 주제를 앞에 놓는다.
     """
-    tokens: set[str] = set()
+    tokens: list[str] = []
     for word in clean(value).lower().split():
         stem = _strip_tail(word)
-        if len(stem) < 2 or stem in STOPWORDS:
+        if len(stem) < 2 or stem in STOPWORDS or stem in tokens:
             continue
         if any(stem.startswith(prefix) for prefix in STOPWORD_PREFIXES):
             continue
@@ -157,8 +158,43 @@ def content_tokens(value: str) -> set[str]:
         # 한국어 명사는 이 글자로 끝나는 일이 드물어서 규칙 하나로 대부분 걸러진다.
         if stem[-1] in _PREDICATE_ENDINGS:
             continue
-        tokens.add(stem)
+        tokens.append(stem)
     return tokens
+
+
+def content_tokens(value: str) -> set[str]:
+    return set(content_token_list(value))
+
+
+def is_filler(value: str) -> bool:
+    """주제를 가리키지 않는 말인가. '어디', '알려주세요', '몇 층' 같은 것들.
+
+    메뉴 키워드를 거를 때 쓴다. 실제로 이것 때문에 무인민원발급기 안내의 키워드에
+    '어디' 가 들어갔고, "화장실 어디야" 가 그 메뉴로 답해졌다.
+    질문에서 말투를 걸러내는 것만으로는 부족하다. 메뉴 쪽에 남아 있으면
+    아무 질문이나 걸리는 그물이 된다.
+
+    content_tokens() 가 비었다는 것만으로는 판단할 수 없다. 한 글자 낱말이나
+    낯선 표기도 비게 되는데, 그건 말투가 아니라 그냥 짧은 것이다.
+    말투라고 확신할 수 있는 근거가 있을 때만 True 를 돌려준다.
+    """
+    words = clean(value).lower().split()
+    if not words:
+        return True
+    for word in words:
+        stem = _strip_tail(word)
+        # 한 글자는 주제를 지탱하지 못한다. '몇 층' 이 여권 안내의 키워드로 들어가서
+        # "세정과 몇 층이에요" 가 여권 안내로 답해졌다. 다른 곳에서 쓰는 기준과 같다.
+        if len(stem) < 2:
+            continue
+        if stem in STOPWORDS:
+            continue
+        if any(stem.startswith(prefix) for prefix in STOPWORD_PREFIXES):
+            continue
+        if stem and stem[-1] in _PREDICATE_ENDINGS:
+            continue
+        return False  # 말투로 설명되지 않는 낱말이 하나라도 있으면 주제어다
+    return True
 
 
 def _bigram_jaccard(left: str, right: str) -> float:
@@ -192,32 +228,64 @@ def token_score(left: str, right: str) -> float:
     return score
 
 
+# 앞에 놓인 낱말이 이만큼도 통하지 않으면 같은 주제로 보지 않는다.
+HEAD_MIN = 0.2
+HEAD_PENALTY = 0.55
+HEAD_DEPTH = 1
+
+
+def head_affinity(left: list[str], right: list[str], depth: int = HEAD_DEPTH) -> float:
+    """두 질문의 '앞머리' 가 서로 통하는 정도.
+
+    한국어 질문은 주제를 앞에 놓는다. "주차 무료인가요" 와 "등본 무료인가요" 는
+    낱말 두 개 중 하나가 같아서 유사도가 0.5 나오지만, 주제는 정반대다.
+    실제로 여권·등본·주차 질문이 한 묶음으로 뭉쳐서 엉뚱한 제안이 나왔다.
+
+    뒤에 붙는 '무료', '얼마', '시간' 같은 말은 어느 주제에나 붙는다.
+    주제를 가르는 것은 맨 앞 명사다. 그것이 통하는지만 따로 본다.
+
+    depth 를 2 로 두면 뒤쪽의 흔한 낱말이 다시 끼어들어 판단이 무력해진다.
+    '주차 무료' 와 '등본 무료' 가 '무료' 로 통해버린다. 기본값이 1 인 이유다.
+    """
+    if not left or not right:
+        return 0.0
+    heads_l, heads_r = left[:depth], right[:depth]
+    return max(token_score(a, b) for a in heads_l for b in heads_r)
+
+
+def _coverage(source: set[str], target: set[str]) -> float:
+    return sum(max(token_score(s, t) for t in target) for s in source) / len(source)
+
+
+def _pair_score(left: set[str], right: set[str]) -> float:
+    return (_coverage(left, right) + _coverage(right, left)) / 2
+
+
 def similarity(left: str, right: str) -> float:
     """0~1 유사도. 클러스터링이 의존하는 유일한 함수다.
 
     내용어끼리 비교하되 낱말도 글자 단위로 견준다.
     '주차' 와 '주차장' 은 붙어야 하고, '화장실' 과 '주차장' 은 떨어져야 한다.
     """
-    left_tokens, right_tokens = content_tokens(left), content_tokens(right)
-    if not left_tokens or not right_tokens:
+    left_list, right_list = content_token_list(left), content_token_list(right)
+    if not left_list or not right_list:
         # 내용어가 없으면(짧은 잡담 등) 통문장을 글자 단위로 견준다
         return _bigram_jaccard(normalize(left), normalize(right))
-
-    def coverage(source: set[str], target: set[str]) -> float:
-        return sum(max(token_score(s, t) for t in target) for s in source) / len(source)
-
-    return (coverage(left_tokens, right_tokens) + coverage(right_tokens, left_tokens)) / 2
+    return token_similarity(left_list, right_list)
 
 
-def token_similarity(left: set[str], right: set[str]) -> float:
-    """이미 뽑아둔 낱말 집합끼리 견준다. 같은 질문을 반복해서 토큰화하지 않기 위해 분리했다."""
+def token_similarity(left: list[str] | set[str], right: list[str] | set[str]) -> float:
+    """이미 뽑아둔 낱말끼리 견준다. 같은 질문을 반복해서 토큰화하지 않기 위해 분리했다.
+
+    순서 있는 목록을 주면 앞머리까지 본다. 집합을 주면 낱말 겹침만 본다.
+    """
     if not left or not right:
         return 0.0
-
-    def coverage(source: set[str], target: set[str]) -> float:
-        return sum(max(token_score(s, t) for t in target) for s in source) / len(source)
-
-    return (coverage(left, right) + coverage(right, left)) / 2
+    score = _pair_score(set(left), set(right))
+    ordered = isinstance(left, list) and isinstance(right, list)
+    if ordered and score and head_affinity(list(left), list(right)) < HEAD_MIN:
+        score *= HEAD_PENALTY
+    return score
 
 
 def keywords(values: list[str], limit: int = 5) -> list[str]:
@@ -228,6 +296,19 @@ def keywords(values: list[str], limit: int = 5) -> list[str]:
             counts[token] = counts.get(token, 0) + 1
     ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     return [word for word, _ in ranked[:limit]]
+
+
+_JAMO = re.compile(r"^[ㄱ-ㅎㅏ-ㅣ\s]+$")
+
+
+def is_jamo_only(value: str) -> bool:
+    """자음·모음만으로 된 입력인가. 'ㅋㅋㅋㅋ' 'ㅇㅇ' 'ㅠㅠ' 같은 것.
+
+    길이가 충분해서 '너무 짧음' 규칙을 통과한다. 남겨두면 주제로 묶여
+    LLM 이 "이게 안내할 가치가 있나" 를 판단하느라 돈을 쓴다. 판단할 것이 없다.
+    """
+    stripped = clean(value)
+    return bool(stripped) and bool(_JAMO.match(stripped))
 
 
 def is_abusive(value: str) -> bool:

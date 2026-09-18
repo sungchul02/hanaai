@@ -37,9 +37,17 @@ WEAK_MATCH = 0.3
 
 
 def _primary_terms(menu: CmsMenu) -> set[str]:
-    """이 메뉴가 '무엇에 대한' 것인지 나타내는 낱말. 제목과 키워드."""
+    """이 메뉴가 '무엇에 대한' 것인지 나타내는 낱말. 제목과 키워드.
+
+    말투 키워드는 버린다. '어디' 가 키워드에 있으면 "어디" 가 든 모든 질문이 걸린다.
+    실제로 무인민원발급기 안내가 "화장실 어디야" 에 답했다.
+    내용어가 없는 키워드를 통문장으로 되살리던 예비 처리가 원인이었다.
+    그 예비 처리 자체는 '3층' 같은 짧은 키워드에 필요하므로 남기되, 말투만 먼저 뺀다.
+    """
     terms: set[str] = set()
     for keyword in menu.keywords:
+        if textutil.is_filler(keyword):
+            continue
         terms |= textutil.content_tokens(keyword) or {textutil.normalize(keyword)}
     terms |= textutil.content_tokens(menu.title)
     return {term for term in terms if term}
@@ -67,7 +75,8 @@ def _keyword_coverage(normalized_question: str, menu: CmsMenu) -> float:
         (
             len(normalized)
             for keyword in menu.keywords
-            if len(normalized := textutil.normalize(keyword)) >= 2
+            if not textutil.is_filler(keyword)
+            and len(normalized := textutil.normalize(keyword)) >= 2
             and normalized in normalized_question
         ),
         default=0,

@@ -63,3 +63,12 @@ def test_어간이_같으면_활용형이_달라도_같은_말로_본다() -> No
 def test_욕설_판정() -> None:
     assert tu.is_abusive("바보야")
     assert not tu.is_abusive("주차장 어디예요?")
+
+
+def test_자음만_입력된_것은_거른다() -> None:
+    """'ㅋㅋㅋㅋ' 는 길이가 충분해서 '너무 짧음' 규칙을 통과한다.
+    남겨두면 주제로 묶여 LLM 이 "안내 가치가 있나" 를 판단하느라 돈을 쓴다."""
+    assert tu.is_jamo_only("ㅋㅋㅋㅋ") is True
+    assert tu.is_jamo_only("ㅇㅇ") is True
+    assert tu.is_jamo_only("주차 ㅋㅋ") is False
+    assert tu.is_jamo_only("화장실 어디") is False

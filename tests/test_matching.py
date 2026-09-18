@@ -7,6 +7,9 @@
 
 from __future__ import annotations
 
+import pytest
+
+from agents.analyst import textutil
 from services.common.models import CmsMenu
 from services.kiosk_api.service import find_answer
 
@@ -134,3 +137,43 @@ def test_요청_표현은_주제어로_치지_않는다() -> None:
 
 def test_메뉴가_하나도_없으면_안내_불가() -> None:
     assert find_answer("주차장 어디예요?", [])[2] == "fallback"
+
+
+# ------------------------------------------------------------------ 말투 키워드
+
+def _menu(title: str, body: str, keywords: list[str]) -> CmsMenu:
+    return CmsMenu(menu_id=99, customer_id=1, code="x", title=title, body=body, keywords=keywords)
+
+
+def test_말투_키워드는_아무_질문이나_잡지_않는다() -> None:
+    """실제로 당한 것. 무인발급기 안내의 키워드에 '어디' 가 있어서
+    "화장실 어디야" 가 그 메뉴로 답해졌다. 키오스크 사용자는 엉뚱한 안내를 받고,
+    화장실 메뉴가 없다는 진짜 공백은 '응답함' 으로 묻힌다."""
+    menu = _menu(
+        "무인민원발급기 안내",
+        "천안시청에 무인민원발급기가 있습니다. 운영시간은 평일 09:00부터 18:00까지입니다.",
+        ["무인발급기", "무인민원발급기", "어디", "몇 층"],
+    )
+    found, _score, verdict = find_answer("화장실 어디야", [menu])
+    assert verdict == "fallback", "말투만 걸린 것은 답이 아니다"
+    assert found is None
+
+    # 진짜 주제어는 여전히 잡아야 한다
+    _found, _score, verdict = find_answer("무인발급기 어디 있어요?", [menu])
+    assert verdict == "cms_menu"
+
+
+@pytest.mark.parametrize(
+    ("word", "filler"),
+    [
+        ("어디", True),
+        ("알려주세요", True),
+        ("몇 층", True),  # 질문 형식이지 주제가 아니다
+        ("차", True),  # 한 글자는 '자동차' '기차' 어디에나 걸린다
+        ("주차", False),
+        ("3층", False),  # 짧아도 층 안내에서는 주제어다
+        ("24시간", False),
+    ],
+)
+def test_말투와_주제어를_가른다(word: str, filler: bool) -> None:
+    assert textutil.is_filler(word) is filler

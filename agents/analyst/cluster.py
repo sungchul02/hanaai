@@ -84,21 +84,24 @@ class Cluster:
         return picked
 
 
-def _tokenize(items: list[QuestionItem]) -> tuple[dict[int, set[str]], set[str]]:
+def _tokenize(items: list[QuestionItem]) -> tuple[dict[int, list[str]], set[str]]:
     """질문별 내용어를 한 번만 뽑고, 말뭉치에서 너무 흔한 낱말을 걸러낸다.
 
     "있어요" 처럼 주제와 무관한데 여러 질문에 공통으로 나오는 말이 남아 있으면
     "수유실 있어요" 와 "엘리베이터 어디 있어요" 가 한 묶음이 된다. 실제로 그랬다.
     """
-    tokens = {item.question_id: textutil.content_tokens(item.text) for item in items}
+    tokens = {item.question_id: textutil.content_token_list(item.text) for item in items}
     frequency: Counter[str] = Counter()
-    for token_set in tokens.values():
-        frequency.update(token_set)
+    for token_list in tokens.values():
+        frequency.update(set(token_list))
 
     total = max(len(items), 1)
     common = {word for word, count in frequency.items() if count / total >= CORPUS_STOPWORD_DF}
-    # 전부 흔한 낱말뿐인 질문은 그냥 원래 집합을 쓴다. 빈 집합이 되면 비교가 불가능하다.
-    return {qid: (ts - common) or ts for qid, ts in tokens.items()}, common
+    # 순서를 지킨 채로 걸러낸다. 앞머리 비교가 순서에 의존한다(textutil.head_affinity).
+    # 전부 흔한 낱말뿐인 질문은 원래 목록을 쓴다. 비어버리면 비교가 불가능하다.
+    return {
+        qid: [t for t in tl if t not in common] or tl for qid, tl in tokens.items()
+    }, common
 
 
 def build_clusters(
