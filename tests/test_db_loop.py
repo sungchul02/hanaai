@@ -239,11 +239,16 @@ def test_판단이_끝난_질문은_다시_분류되지_않는다(
     before = len(_load_questions(session, window, customer_id))
     assert before, "분류 대상이 있어야 한다"
 
-    # 첫 주제를 '답변 생성됨' 으로 표시한다
+    # 아직 분류 대상인 주제를 하나 골라 '답변 생성됨' 으로 표시한다.
+    # 기존 메뉴가 답하는 주제는 이미 빠져 있어서 골라봐야 차이가 안 난다.
     cluster = session.scalars(
-        select(QuestionCluster).where(QuestionCluster.customer_id == customer_id)
+        select(QuestionCluster).where(
+            QuestionCluster.customer_id == customer_id,
+            QuestionCluster.covered_menu_id.is_(None),
+            QuestionCluster.review_status.is_(None),
+        )
     ).first()
-    assert cluster is not None
+    assert cluster is not None, "분류 대상인 주제가 있어야 한다"
     cluster.review_status = "answered"
     session.commit()
 
