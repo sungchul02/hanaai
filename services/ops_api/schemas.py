@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 from decimal import Decimal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -24,10 +25,14 @@ class DashboardSummary(BaseModel):
     weak_7d: int
     answer_rate_7d: float | None
     junk_7d: int
+    junk_by_llm_7d: int
     menus_published: int
     menus_from_ai: int
     proposals_pending: int
     last_analysis_at: dt.datetime | None
+    # 마지막 분석이 실제로 한 일. 화면의 단계 표시는 이 값만 쓴다.
+    last_run_stats: dict[str, Any] | None = None
+    last_run_questions: int | None = None
 
 
 class MenuRow(BaseModel):
@@ -52,6 +57,7 @@ class QuestionRow(BaseModel):
     matched_menu_title: str | None
     match_score: float | None
     verdict: str
+    verdict_reason: str | None = None
 
 
 class TopicRow(BaseModel):
@@ -62,8 +68,16 @@ class TopicRow(BaseModel):
     size: int
     unanswered: int
     keywords: list[str]
+    covered_menu_id: int | None
     covered_menu_title: str | None
     has_proposal: bool
+    # 상위 Agent 의 판단. None 은 아직 판단 대상이 아니었다는 뜻이다.
+    triage_keep: bool | None = None
+    triage_reason: str | None = None
+    # 하위 Agent 의 조사 결과
+    evidence_found: bool | None = None
+    evidence_summary: str | None = None
+    evidence_missing: list[str] = []
 
 
 class ProposalRow(BaseModel):
@@ -163,6 +177,26 @@ class ApproveIn(BaseModel):
     body: str | None = Field(default=None, min_length=10, max_length=500)
     keywords: list[str] | None = None
     note: str | None = None
+    # 같은 주제의 메뉴가 이미 있을 때 무엇을 할지. 화면이 물어보고 관리자가 고른다.
+    #   replace: 기존 메뉴를 이 내용으로 교체   merge: 기존 본문 뒤에 덧붙임
+    #   new:     별도 메뉴로 추가 (중복을 감수하고 만드는 것)
+    on_duplicate: Literal["replace", "merge", "new"] = "replace"
+    # 어느 메뉴와 겹치는지. 비우면 서버가 제목으로 찾는다.
+    duplicate_of: int | None = None
+
+
+class DuplicateHint(BaseModel):
+    """이 제안과 겹치는 기존 메뉴. 승인 화면이 [추가하기] 전에 보여준다.
+
+    중복 확인을 서버에 두는 이유: 관리자가 어느 메뉴와 겹치는지 눈으로 찾게 두면
+    빠뜨린다. 실제로 '증명서 발급 수수료' 메뉴가 네 개까지 늘었다.
+    """
+
+    menu_id: int
+    title: str
+    body: str
+    keywords: list[str]
+    similarity: float
 
 
 class IgnoreIn(BaseModel):
@@ -189,3 +223,51 @@ class RunAnalysisOut(BaseModel):
     error: str | None
     # 추천이 0건일 때 "왜" 를 화면이 설명할 수 있어야 한다.
     stats: dict[str, int]
+
+
+class DocumentRow(BaseModel):
+    """근거 문서 한 건. AI 가 안내문을 쓸 때 참고하는 원본이다."""
+
+    document_id: int
+    title: str
+    url: str | None
+    note: str | None
+    fetched_at: dt.datetime | None
+    chunk_count: int
+
+
+class EvidenceRow(BaseModel):
+    """제안이 근거로 삼은 문서 조각. 출처를 눌러 원문을 확인할 수 있어야 한다."""
+
+    chunk_id: int
+    document_title: str
+    document_url: str | None
+    heading: str | None
+    score: Decimal | None
+    quote: str | None
+
+
+class TodoSummary(BaseModel):
+    """관리자가 지금 눌러야 할 것. 행동으로 이어지는 숫자만 담는다."""
+
+    pending_review: int
+    needs_document: int
+    duplicate_menus: int
+    unanalyzed: int
+
+
+class RunRow(BaseModel):
+    """분석 이력 한 줄. 비용까지 함께 보여 버튼의 무게를 알게 한다."""
+
+    analysis_run_id: int
+    started_at: dt.datetime
+    finished_at: dt.datetime | None
+    status: str
+    model: str | None
+    questions_seen: int
+    clusters_found: int
+    proposals_made: int
+    stats: dict[str, Any]
+    llm_calls: int | None = None
+    cost_usd: float | None = None
+    error: str | None = None

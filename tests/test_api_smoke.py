@@ -29,7 +29,7 @@ def test_화면_B_가_서빙된다() -> None:
     with TestClient(ops_app) as client:
         page = client.get("/ui/")
         assert page.status_code == 200
-        assert "AI 추천 콘텐츠" in page.text
+        assert "승인 대기" in page.text
 
 
 def test_루트는_화면으로_보낸다() -> None:

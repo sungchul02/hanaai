@@ -38,7 +38,11 @@ _SUMMARY_SQL = text(
       -- 약하게 맞은 것은 답을 보여줬어도 '답한 것' 으로 치지 않는다.
       -- 스치듯 걸린 답변이 응답 완료로 잡히면 진짜 공백이 묻힌다.
       (SELECT count(*) FROM recent WHERE answer_source = 'low_confidence')    AS weak_7d,
-      (SELECT count(*) FROM recent WHERE verdict IN ('abusive', 'too_short')) AS junk_7d,
+      -- 규칙이 거른 것(abusive/too_short)과 LLM 이 거른 것(irrelevant)을 함께 센다.
+      -- LLM 판정을 빼면 "AI 가 15건을 걸렀는데 화면에는 3건" 이 되어 숫자를 믿을 수 없다.
+      (SELECT count(*) FROM recent
+        WHERE verdict IN ('abusive', 'too_short', 'irrelevant'))            AS junk_7d,
+      (SELECT count(*) FROM recent WHERE verdict = 'irrelevant')            AS junk_by_llm_7d,
       (SELECT count(*) FROM cms_menu
         WHERE customer_id = :customer_id AND status = 'published')           AS menus_published,
       (SELECT count(*) FROM cms_menu
@@ -46,7 +50,15 @@ _SUMMARY_SQL = text(
       (SELECT count(*) FROM content_proposal
         WHERE customer_id = :customer_id AND status = 'pending_review')      AS proposals_pending,
       (SELECT max(finished_at) FROM analysis_run
-        WHERE customer_id = :customer_id AND status = 'succeeded')           AS last_analysis_at
+        WHERE customer_id = :customer_id AND status = 'succeeded')           AS last_analysis_at,
+      -- 마지막 분석이 실제로 무엇을 했는지. 이게 없으면 화면의 '단계' 표시가
+      -- 분석과 무관한 숫자를 지어내게 된다. 실제로 그랬다.
+      (SELECT stats FROM analysis_run
+        WHERE customer_id = :customer_id AND status = 'succeeded'
+        ORDER BY analysis_run_id DESC LIMIT 1)                               AS last_run_stats,
+      (SELECT questions_seen FROM analysis_run
+        WHERE customer_id = :customer_id AND status = 'succeeded'
+        ORDER BY analysis_run_id DESC LIMIT 1)                               AS last_run_questions
     """
 )
 
@@ -70,7 +82,7 @@ _QUESTIONS_SQL = text(
     SELECT q.question_id, q.asked_at, k.serial_no AS kiosk_serial, q.question_text,
            q.answer_source::text AS answer_source, m.title AS matched_menu_title,
            q.match_score,
-           q.verdict::text AS verdict
+           q.verdict::text AS verdict, q.verdict_reason
     FROM question_log q
     JOIN kiosk k ON k.kiosk_id = q.kiosk_id
     JOIN site s  ON s.site_id = k.site_id
@@ -101,6 +113,9 @@ def list_questions(
 _TOPICS_SQL = text(
     """
     SELECT c.cluster_id, c.label, c.size, c.unanswered, c.keywords,
+           c.covered_menu_id,
+           c.triage_keep, c.triage_reason,
+           c.evidence_found, c.evidence_summary, c.evidence_missing,
            m.title AS covered_menu_title,
            EXISTS (SELECT 1 FROM content_proposal p WHERE p.cluster_id = c.cluster_id)
                AS has_proposal
@@ -110,7 +125,14 @@ _TOPICS_SQL = text(
         SELECT max(analysis_run_id) FROM analysis_run
         WHERE customer_id = :customer_id AND status = 'succeeded'
     )
-    ORDER BY c.size DESC
+    -- 관리자가 조치할 수 있는 것부터 보여준다.
+    -- 크기순으로만 두면 Agent 가 판단한 주제(근거 없음 · AI가 제외)가
+    -- 판단조차 안 된 주제들 사이에 흩어져 묻힌다. 실제로 "화장실 물어봤는데
+    -- 어떻게 됐는지 안 보인다" 는 말을 들었고, 16번째 줄에 있었다.
+    ORDER BY
+      (c.triage_keep IS NOT NULL) DESC,       -- Agent 가 판단한 것 먼저
+      (c.evidence_found IS FALSE) DESC,       -- 그중 문서 보강이 필요한 것 먼저
+      c.size DESC
     LIMIT :limit
     """
 )

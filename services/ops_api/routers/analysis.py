@@ -9,13 +9,14 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from agents.analyst.generator import get_generator
 from agents.analyst.runner import Window, run_analysis
 from services.common.db import get_session
 from services.common.models import AnalysisRun
-from services.ops_api.schemas import RunAnalysisIn, RunAnalysisOut
+from services.ops_api.schemas import RunAnalysisIn, RunAnalysisOut, RunRow
 
 router = APIRouter(prefix="/v1/analysis", tags=["analysis"])
 DbSession = Annotated[Session, Depends(get_session)]
@@ -45,3 +46,35 @@ def run(payload: RunAnalysisIn, session: DbSession) -> RunAnalysisOut:
         error=record.error,
         stats={key: int(value) for key, value in (record.stats or {}).items()},
     )
+
+
+@router.get("/runs", response_model=list[RunRow])
+def runs(session: DbSession, customer_id: int, limit: int = 20) -> list[RunRow]:
+    """분석 이력. 무엇이 언제 어떻게 돌았는지가 남아야 결과를 믿을 수 있다.
+
+    비용도 함께 보여준다. LLM 을 몇 번 불렀고 얼마를 썼는지 모르면
+    '분석 실행' 버튼이 얼마짜리인지 알 수 없다.
+    """
+    rows = session.scalars(
+        select(AnalysisRun)
+        .where(AnalysisRun.customer_id == customer_id)
+        .order_by(AnalysisRun.analysis_run_id.desc())
+        .limit(limit)
+    )
+    return [
+        RunRow(
+            analysis_run_id=r.analysis_run_id,
+            started_at=r.started_at,
+            finished_at=r.finished_at,
+            status=r.status,
+            model=r.model,
+            questions_seen=r.questions_seen or 0,
+            clusters_found=r.clusters_found or 0,
+            proposals_made=r.proposals_made or 0,
+            stats=r.stats or {},
+            llm_calls=(r.token_usage or {}).get("calls"),
+            cost_usd=(r.token_usage or {}).get("cost_usd"),
+            error=r.error,
+        )
+        for r in rows
+    ]

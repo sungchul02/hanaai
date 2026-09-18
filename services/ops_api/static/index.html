@@ -80,6 +80,28 @@
   .flow .n { color: var(--muted); font-size: 11px; }
   .flow .t { font-weight: 600; margin-top: 2px; font-size: 13px; }
   .flow .v { font-family: var(--mono); font-size: 17px; margin-top: 4px; }
+
+  /* 할 일 — 화면에서 가장 먼저 보여야 하는 것이라 색과 크기를 따로 준다 */
+  .todo { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          margin-bottom: 18px; }
+  .todo .t { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--line);
+             border-radius: 10px; padding: 12px 14px; display: flex; align-items: center; gap: 12px; }
+  .todo .t.has { border-left-color: var(--warn); }
+  .todo .t.done { border-left-color: var(--ok); }
+  .todo .n { font-family: var(--mono); font-size: 26px; min-width: 42px; }
+  .todo .t.has .n { color: var(--warn); }
+  .todo .t.done .n { color: var(--ok); }
+  .todo .l { font-size: 13px; font-weight: 600; }
+  .todo .s { color: var(--muted); font-size: 11.5px; }
+  .todo button { margin-left: auto; }
+
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+  .tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+                 padding: 9px 14px; color: var(--muted); background: none; }
+  .tabs button:hover { color: var(--brand); }
+  .tabs button.on { color: var(--brand); border-bottom-color: var(--brand); font-weight: 650; }
+  .tabs .badge { display: inline-block; margin-left: 5px; background: var(--warn); color: #fff;
+                 border-radius: 9px; padding: 0 6px; font-size: 10.5px; font-family: var(--mono); }
 </style>
 </head>
 <body>
@@ -95,28 +117,57 @@
 
 <main>
   <div id="error"></div>
-  <div class="cards" id="cards"></div>
 
-  <div class="flow" id="flow"></div>
+  <!-- 화면 맨 위는 '지금 눌러야 할 것'. 숫자를 늘어놓는 대시보드와 다른 점은
+       행동으로 이어지는 것만 센다는 것이다. '질문 297건' 은 관리자가 할 일이 없다. -->
+  <div class="todo" id="todo"></div>
 
-  <h2>AI 추천 콘텐츠</h2>
-  <div class="panel" id="proposals"></div>
+  <nav class="tabs" id="tabs"></nav>
 
-  <h2>많이 나온 주제</h2>
-  <div class="panel" id="topics"></div>
+  <section class="tab" id="tab-todo">
+    <h2>승인 대기 <span class="muted" style="text-transform:none;letter-spacing:0">AI가 만든 초안. 승인해야 키오스크에 나갑니다</span></h2>
+    <div class="panel" id="proposals"></div>
 
-  <h2>최근 질문 <span style="text-transform:none;letter-spacing:0" class="muted">(10초마다 자동 갱신)</span>
-    <span style="text-transform:none;letter-spacing:0">
-    <label class="muted"><input type="checkbox" id="onlyMiss" onchange="loadQuestions()"> 답하지 못한 것만</label>
-  </span></h2>
-  <div class="panel" id="questions"></div>
+    <h2>문서 보강 필요 <span class="muted" style="text-transform:none;letter-spacing:0">물어보는데 근거 문서가 없어 답을 못 만드는 주제</span></h2>
+    <div class="panel" id="gaps"></div>
 
-  <h2>현재 CMS 메뉴
-    <button style="text-transform:none;letter-spacing:0;margin-left:8px"
-            onclick="openEditor()">+ 메뉴 직접 추가</button>
-  </h2>
-  <div class="panel" id="editor" style="display:none"></div>
-  <div class="panel" id="menus" style="margin-top:12px"></div>
+    <h2>중복 메뉴 <span class="muted" style="text-transform:none;letter-spacing:0">제목이 같은 메뉴. 키오스크는 하나만 답합니다</span></h2>
+    <div class="panel" id="dups"></div>
+  </section>
+
+  <section class="tab" id="tab-menus" hidden>
+    <h2>CMS 메뉴
+      <button style="text-transform:none;letter-spacing:0;margin-left:8px"
+              onclick="openEditor()">+ 메뉴 직접 추가</button>
+    </h2>
+    <div class="panel" id="editor" style="display:none;margin-bottom:12px"></div>
+    <div class="panel" id="menus"></div>
+  </section>
+
+  <section class="tab" id="tab-questions" hidden>
+    <h2>많이 나온 주제 <span class="muted" style="text-transform:none;letter-spacing:0">조치가 필요한 것부터</span></h2>
+    <div class="panel" id="topics"></div>
+
+    <h2>최근 질문 <span style="text-transform:none;letter-spacing:0" class="muted">(10초마다 자동 갱신)</span>
+      <span style="text-transform:none;letter-spacing:0">
+      <label class="muted"><input type="checkbox" id="onlyMiss" onchange="loadQuestions()"> 답하지 못한 것만</label>
+    </span></h2>
+    <div class="panel" id="questions"></div>
+  </section>
+
+  <section class="tab" id="tab-docs" hidden>
+    <h2>근거 문서 <span style="text-transform:none;letter-spacing:0" class="muted">AI는 여기 적힌 것만 사실로 씁니다</span></h2>
+    <div class="panel" id="documents"></div>
+  </section>
+
+  <section class="tab" id="tab-runs" hidden>
+    <h2>마지막 분석이 한 일</h2>
+    <div class="flow" id="flow"></div>
+    <h2>분석 이력</h2>
+    <div class="panel" id="runs"></div>
+    <h2>질문 통계</h2>
+    <div class="cards" id="cards"></div>
+  </section>
 </main>
 
 <script>
@@ -138,8 +189,123 @@ async function loadCustomers() {
     `<option value="${c.customer_id}">${esc(c.name)} (${esc(c.code)})</option>`).join("");
 }
 
+// ------------------------------------------------------------------ 탭
+
+// 탭마다 필요한 데이터가 다르다. 보지도 않는 탭의 API 를 10초마다 부를 이유가 없다.
+const TABS = [
+  ["todo", "할 일"],
+  ["menus", "CMS 메뉴"],
+  ["questions", "질문"],
+  ["docs", "근거 문서"],
+  ["runs", "분석 이력"],
+];
+let current = "todo";
+
+function renderTabs(counts) {
+  $("tabs").innerHTML = TABS.map(([key, label]) => {
+    const n = counts[key];
+    return `<button class="${key === current ? "on" : ""}" onclick="switchTab('${key}')">
+      ${label}${n ? `<span class="badge">${n}</span>` : ""}</button>`;
+  }).join("");
+}
+
+function switchTab(key) {
+  current = key;
+  TABS.forEach(([k]) => { $("tab-" + k).hidden = k !== key; });
+  renderTabs(tabCounts);
+  loadTab();
+}
+
+let tabCounts = {};
+
+// ------------------------------------------------------------------ 할 일
+
+function renderTodo(t) {
+  tabCounts = { todo: t.pending_review + t.needs_document + t.duplicate_menus };
+  const items = [
+    ["승인 대기", t.pending_review, "AI 초안을 검토해 키오스크에 반영",
+      () => "switchTab('todo')"],
+    ["문서 보강 필요", t.needs_document, "묻는데 근거 문서가 없어 답을 못 만듦",
+      () => "switchTab('todo')"],
+    ["중복 메뉴", t.duplicate_menus, "제목이 같은 메뉴. 하나만 남기세요",
+      () => "switchTab('todo')"],
+    ["미분석 질문", t.unanalyzed, "아직 분석에 들어가지 않은 질문",
+      () => "runAnalysis()"],
+  ];
+  $("todo").innerHTML = items.map(([label, n, sub, action]) => `
+    <div class="t ${n ? "has" : "done"}">
+      <div class="n">${n}</div>
+      <div><div class="l">${label}</div><div class="s">${n ? sub : "처리할 것 없음"}</div></div>
+      ${n ? `<button onclick="${action()}">보기</button>` : ""}
+    </div>`).join("");
+  renderTabs(tabCounts);
+}
+
+// 근거 문서가 없어 답을 못 만드는 주제. 관리자가 문서를 채워야 풀린다.
+function renderGaps(topics) {
+  const rows = topics.filter(t => t.evidence_found === false);
+  if (!rows.length) {
+    $("gaps").innerHTML = '<div class="empty">근거 문서가 없어 막힌 주제가 없습니다.</div>';
+    return;
+  }
+  $("gaps").innerHTML = `<table><thead><tr>
+      <th>대표 질문</th><th class="num">질문</th><th>AI가 확인한 것</th><th></th>
+    </tr></thead><tbody>` + rows.map(t => `<tr>
+      <td>${esc(t.label)}<div class="muted" style="margin-top:3px">${esc(t.triage_reason)}</div></td>
+      <td class="num">${t.size}</td>
+      <td class="muted">${(t.evidence_missing || []).map(esc).join("<br>")}</td>
+      <td><button onclick="openEditor()">직접 작성</button></td>
+    </tr>`).join("") + `</tbody></table>`;
+}
+
+// 같은 제목의 메뉴들. 자동으로 지우지 않는다 — 어느 본문이 최신인지는 사람만 안다.
+function renderDuplicates(rows) {
+  if (!rows.length) {
+    $("dups").innerHTML = '<div class="empty">중복된 메뉴가 없습니다.</div>';
+    return;
+  }
+  $("dups").innerHTML = `<table><thead><tr>
+      <th>메뉴명</th><th>안내 문구</th><th>수정 시각</th><th></th>
+    </tr></thead><tbody>` + rows.map(m => `<tr>
+      <td><b>${esc(m.title)}</b> <span class="muted">#${m.menu_id}</span></td>
+      <td style="max-width:420px">${esc(m.body)}</td>
+      <td class="muted">${when(m.updated_at)}</td>
+      <td><button onclick="archiveMenu(${m.menu_id}, '${esc(m.title)}')">이것 삭제</button></td>
+    </tr>`).join("") + `</tbody></table>`;
+}
+
+async function archiveMenu(menuId, title) {
+  if (!confirm(`'${title}' (#${menuId}) 를 보관 처리합니다.\n키오스크가 이 메뉴로 답하지 않게 됩니다.`)) return;
+  try {
+    await api(`/v1/menus/${menuId}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "archived" })
+    });
+    await loadAll();
+    flash("메뉴를 보관했습니다");
+  } catch (e) { showError(e.message); }
+}
+
+function renderRuns(rows) {
+  if (!rows.length) { $("runs").innerHTML = '<div class="empty">분석 이력이 없습니다.</div>'; return; }
+  $("runs").innerHTML = `<table><thead><tr>
+      <th>시각</th><th>상태</th><th class="num">질문</th><th class="num">주제</th>
+      <th class="num">추천</th><th>LLM</th><th>모델</th>
+    </tr></thead><tbody>` + rows.map(r => `<tr>
+      <td class="muted">${when(r.finished_at || r.started_at)}</td>
+      <td>${r.status === "succeeded"
+            ? '<span class="tag ok">완료</span>'
+            : `<span class="tag miss">${esc(r.status)}</span>`}
+          ${r.error ? `<div class="muted">${esc(r.error.slice(0, 80))}</div>` : ""}</td>
+      <td class="num">${r.questions_seen}</td>
+      <td class="num">${r.clusters_found}</td>
+      <td class="num">${r.proposals_made}</td>
+      <td class="muted">${r.llm_calls ? `${r.llm_calls}회 · $${r.cost_usd?.toFixed(2)}` : "—"}</td>
+      <td class="muted">${esc(r.model)}</td>
+    </tr>`).join("") + `</tbody></table>`;
+}
+
 function renderCards(s) {
-  lastCount = s.questions_7d;
   const rate = s.answer_rate_7d == null ? "—" : (s.answer_rate_7d * 100).toFixed(1) + "%";
   const items = [
     ["질문 7일", s.questions_7d.toLocaleString(), ""],
@@ -147,22 +313,46 @@ function renderCards(s) {
     ["답변률", rate, s.answer_rate_7d != null && s.answer_rate_7d < 0.7 ? "warn" : "ok"],
     ["답하지 못함", s.unanswered_7d.toLocaleString(), s.unanswered_7d ? "warn" : "ok"],
     ["약한 매칭", s.weak_7d.toLocaleString(), s.weak_7d ? "warn" : ""],
-    ["불필요 질문", s.junk_7d.toLocaleString(), ""],
+    ["불필요 질문", s.junk_7d.toLocaleString(),
+      "", `규칙 ${s.junk_7d - s.junk_by_llm_7d} · AI 판단 ${s.junk_by_llm_7d}`],
     ["CMS 메뉴", s.menus_published, ""],
     ["AI가 만든 메뉴", s.menus_from_ai, s.menus_from_ai ? "ok" : ""],
     ["검토 대기", s.proposals_pending, s.proposals_pending ? "warn" : ""],
   ];
-  $("cards").innerHTML = items.map(([l, v, c]) =>
-    `<div class="card"><div class="l">${l}</div><div class="v ${c}">${v}</div></div>`).join("");
+  $("cards").innerHTML = items.map(([l, v, c, sub]) =>
+    `<div class="card"><div class="l">${l}</div><div class="v ${c}">${v}</div>
+     ${sub ? `<div class="muted" style="font-size:11px">${esc(sub)}</div>` : ""}</div>`).join("");
 
-  $("flow").innerHTML = [
-    ["1", "질문 수집", s.questions_7d.toLocaleString() + " 건"],
-    ["2", "AI 분석", (s.proposals_pending + s.menus_from_ai) + " 주제 추천"],
-    ["3", "관리자 승인", s.proposals_pending + " 건 대기"],
-    ["4", "CMS 반영", s.menus_from_ai + " 건 반영됨"],
-  ].map(([n, t, v]) =>
-    `<div class="s"><div class="n">${n}단계</div><div class="t">${t}</div><div class="v">${v}</div></div>`).join("");
+  renderFlow(s);
   $("ts").textContent = "마지막 분석 " + when(s.last_analysis_at);
+}
+
+// 마지막 분석이 실제로 한 일만 보여준다.
+// 전에는 '2단계 AI 분석' 에 (검토 대기 + 반영됨) 을 더해서 띄웠는데, 그건 분석이
+// 한 일이 아니라 누적 결과라서 분석을 돌려도 숫자가 안 변했다. 돌아가는 것처럼
+// 보이기만 하고 실제로는 아무것도 말해주지 않는 표시였다.
+function renderFlow(s) {
+  const st = s.last_run_stats;
+  if (!st) {
+    $("flow").innerHTML = `<div class="s"><div class="n">아직 분석한 적 없음</div>
+      <div class="t">질문 ${s.questions_7d.toLocaleString()}건이 쌓여 있습니다</div>
+      <div class="muted">상단 [분석 실행]을 누르면 AI가 이 질문들을 처리합니다</div></div>`;
+    return;
+  }
+  const steps = [
+    ["규칙", "질문 묶기", `${(s.last_run_questions ?? 0).toLocaleString()}건 → 주제 ${st.clusters ?? 0}개`],
+    ["규칙", "판단 대상 추리기", `${st.triage_candidates ?? 0}개`,
+      `기존 메뉴가 답함 ${st.skipped_covered ?? 0} · 표본 부족 ${st.skipped_small ?? 0}`],
+    ["LLM · 상위 Agent", "안내 가치 판단", `${st.triage_kept ?? 0}개 통과`,
+      `가치 없어 제외 ${st.triage_dropped ?? 0}`],
+    ["LLM · 하위 Agent", "근거 찾기", `${st.evidence_found ?? 0}개 근거 확보`,
+      `근거 문서 없음 ${st.evidence_missing ?? 0}`],
+    ["LLM · 작성 Agent", "초안 작성·검증", `${st.generated ?? 0}건 생성`,
+      `중복이라 제외 ${st.blocked_duplicate ?? 0}`],
+  ];
+  $("flow").innerHTML = steps.map(([n, t, v, sub]) =>
+    `<div class="s"><div class="n">${n}</div><div class="t">${t}</div>
+     <div class="v">${v}</div>${sub ? `<div class="muted">${sub}</div>` : ""}</div>`).join("");
 }
 
 // Agent 가 초안을 실제 매처에 넣어본 결과. 승인 여부를 감이 아니라 숫자로 판단하게 한다.
@@ -197,6 +387,7 @@ function renderProposals(rows) {
         질문 ${p.question_count}건 · 우선순위 ${p.impact_score} · 확신도 ${p.confidence}
       </div>
       ${verifyLine(p)}
+      <div id="ev${p.proposal_id}" class="muted" style="margin-top:6px">근거 확인 중…</div>
       <div class="samples">대표 질문:
         <ul>${p.sample_questions.map(q => `<li>${esc(q)}</li>`).join("")}</ul>
       </div>
@@ -212,22 +403,80 @@ function renderProposals(rows) {
         <span class="muted">문구를 고친 뒤 [추가하기]를 누르면 '수정 후 반영'으로 기록됩니다</span>
       </div>
     </div>`).join("");
+  rows.forEach(p => loadEvidence(p.proposal_id));
+}
+
+// AI 가 무엇을 보고 이 문장을 썼는지. 출처를 확인하지 않고 승인하면
+// 그 안내가 맞는지 아무도 모르는 채로 키오스크에 나간다.
+async function loadEvidence(id) {
+  const el = $("ev" + id);
+  if (!el) return;
+  try {
+    const rows = await api(`/v1/proposals/${id}/evidence`);
+    if (!rows.length) {
+      el.innerHTML = '<span class="tag miss">근거 문서 없음</span> 내용을 직접 확인한 뒤 승인하세요';
+      return;
+    }
+    el.innerHTML = '<b>근거:</b> ' + rows.map(e => {
+      const label = esc(e.document_title) + (e.heading ? " / " + esc(e.heading) : "");
+      return e.document_url
+        ? `<a href="${esc(e.document_url)}" target="_blank" rel="noopener">${label}</a>`
+        : label;
+    }).join(" · ");
+  } catch (e) { el.textContent = ""; }
+}
+
+function renderDocuments(rows) {
+  if (!rows.length) {
+    $("documents").innerHTML = '<div class="empty">근거 문서가 없습니다. python scripts/seed.py 를 실행하세요.</div>';
+    return;
+  }
+  $("documents").innerHTML = `<table><thead><tr>
+      <th>문서</th><th class="num">조각</th><th>수집 시점</th><th>메모</th>
+    </tr></thead><tbody>` + rows.map(d => `<tr>
+      <td>${d.url ? `<a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.title)}</a>` : esc(d.title)}</td>
+      <td class="num">${d.chunk_count}</td>
+      <td class="muted">${when(d.fetched_at)}</td>
+      <td class="muted">${esc(d.note)}</td>
+    </tr>`).join("") + `</tbody></table>`;
 }
 
 async function approve(id) {
   const reviewer = prompt("검토자 이름", "robin");
   if (!reviewer) return;
+
+  // 같은 제목의 메뉴가 이미 있으면 먼저 물어본다. 묻지 않았더니
+  // '증명서 발급 수수료' 메뉴가 네 개까지 늘었고, 키오스크는 그중 하나만 답했다.
+  let on_duplicate = "new";
+  let duplicate_of = null;
+  try {
+    const dup = await api(`/v1/proposals/${id}/duplicate`);
+    if (dup) {
+      const pick = prompt(
+        `'${dup.title}' 메뉴가 이미 있습니다 (#${dup.menu_id}).\n\n` +
+        `기존 내용: ${dup.body.slice(0, 120)}\n\n` +
+        `1 = 기존 메뉴를 이 내용으로 교체 (권장)\n` +
+        `2 = 기존 메뉴에 내용 합치기\n` +
+        `3 = 별도 메뉴로 추가`, "1");
+      if (pick === null) return;
+      on_duplicate = { "1": "replace", "2": "merge", "3": "new" }[pick.trim()] || "replace";
+      duplicate_of = on_duplicate === "new" ? null : dup.menu_id;
+    }
+  } catch (e) { /* 중복 확인 실패가 승인을 막을 이유는 없다 */ }
+
   const body = {
     reviewer,
     title: $("t" + id).value.trim(),
     body: $("b" + id).value.trim(),
     keywords: $("k" + id).value.split(",").map(s => s.trim()).filter(Boolean),
+    on_duplicate, duplicate_of,
   };
   try {
     await api(`/v1/proposals/${id}/approve`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
     });
     await loadAll();
+    flash("메뉴가 반영되었습니다. 키오스크가 바로 답합니다");
   } catch (e) { showError(e.message); }
 }
 
@@ -249,13 +498,43 @@ function renderTopics(rows) {
   $("topics").innerHTML = `<table><thead><tr>
       <th>대표 질문</th><th>키워드</th><th class="num">질문</th><th class="num">미응답</th><th>상태</th>
     </tr></thead><tbody>` + rows.map(t => {
-      const state = t.covered_menu_title
-        ? `<span class="tag ok">기존 메뉴로 응답</span> ${esc(t.covered_menu_title)}`
-        : (t.has_proposal ? '<span class="tag ai">추천 생성됨</span>' : '<span class="tag">추천 안 함</span>');
-      return `<tr><td>${esc(t.label)}</td>
+      // 비슷한 메뉴가 있는데도 절반 넘게 답을 못 받았으면, 콘텐츠가 없는 게 아니라
+      // 키워드가 안 맞는 것이다. 새 메뉴가 아니라 기존 메뉴를 고쳐야 한다.
+      const needsFix = t.covered_menu_id && t.size > 0 && t.unanswered / t.size >= 0.5;
+      let state;
+      if (needsFix) {
+        state = `<span class="tag miss">보완 필요</span> ${esc(t.covered_menu_title)}
+          <button style="margin-left:6px" onclick="fixMenu(${t.covered_menu_id})">키워드 고치기</button>`;
+      } else if (t.covered_menu_title) {
+        state = `<span class="tag ok">기존 메뉴로 응답</span> ${esc(t.covered_menu_title)}`;
+      } else if (t.triage_keep === false) {
+        // 상위 Agent 가 버린 주제. 왜 버렸는지 보이지 않으면 관리자는
+        // "왜 이 질문에 추천이 없지" 를 확인할 방법이 없다.
+        state = `<span class="tag">AI가 제외</span>`;
+      } else if (t.triage_keep === true && t.evidence_found === false) {
+        // 안내 가치는 있는데 근거 문서가 없다. 지어내지 않고 숙제로 남긴 상태다.
+        state = `<span class="tag miss">근거 문서 없음</span>`;
+      } else {
+        state = t.has_proposal
+          ? '<span class="tag ai">추천 생성됨</span>'
+          : '<span class="tag">추천 안 함</span>';
+      }
+      const note = agentNote(t);
+      return `<tr><td>${esc(t.label)}${note}</td>
         <td class="muted">${t.keywords.map(esc).join(", ")}</td>
         <td class="num">${t.size}</td><td class="num">${t.unanswered}</td><td>${state}</td></tr>`;
     }).join("") + `</tbody></table>`;
+}
+
+// Agent 가 남긴 판단 근거. 판단만 보여주고 이유를 감추면 고칠 수가 없다.
+function agentNote(t) {
+  const lines = [];
+  if (t.triage_reason) lines.push("AI 판단: " + esc(t.triage_reason));
+  if (t.evidence_missing && t.evidence_missing.length) {
+    lines.push("문서 보강 필요: " + t.evidence_missing.map(esc).join(" / "));
+  }
+  if (!lines.length) return "";
+  return `<div class="muted" style="margin-top:3px;font-size:12px">${lines.join("<br>")}</div>`;
 }
 
 function renderQuestions(rows) {
@@ -271,11 +550,36 @@ function renderQuestions(rows) {
             : q.answer_source === "low_confidence"
               ? `<span class="tag weak">약한 매칭</span> ${esc(q.matched_menu_title)} (${q.match_score})`
               : '<span class="tag miss">답변 불가</span>'}</td>
-      <td class="muted">${esc(q.verdict)}</td>
+      <td>${verdictCell(q)}</td>
     </tr>`).join("") + `</tbody></table>`;
 }
 
+// 판정은 두 곳에서 나온다. 규칙(욕설·너무 짧음)과 LLM(안내 가치 없음).
+// 전에는 'useful' 같은 영문 enum 을 그대로 뿌려서, LLM 이 판단한 것인지
+// 아직 판단 전인지 화면에서 구분할 수 없었다.
+const VERDICTS = {
+  pending:    ["분석 전", ""],
+  useful:     ["유효", "ok"],
+  irrelevant: ["AI가 제외", "miss"],
+  abusive:    ["욕설", "miss"],
+  too_short:  ["너무 짧음", ""],
+};
+function verdictCell(q) {
+  let [label, cls] = VERDICTS[q.verdict] || [q.verdict, ""];
+  // 이유가 없는 'useful' 은 LLM 이 유효하다고 판단한 게 아니라,
+  // 규칙이 거를 거리를 못 찾았을 뿐이다. 둘을 같은 말로 쓰면 화면이 거짓말을 한다.
+  // 주제로 묶이지 못한 질문(1~3건)은 비용 때문에 LLM 까지 가지 않는다.
+  if (q.verdict === "useful" && !q.verdict_reason) {
+    label = "유효 (규칙)";
+    cls = "";
+  }
+  const why = q.verdict_reason
+    ? `<div class="muted" style="margin-top:3px">${esc(q.verdict_reason)}</div>` : "";
+  return `<span class="tag ${cls}">${esc(label)}</span>${why}`;
+}
+
 function renderMenus(rows) {
+  menuCache = rows;  // '보완 필요' 주제에서 바로 열 수 있게 들고 있는다
   if (!rows.length) { $("menus").innerHTML = '<div class="empty">메뉴가 없습니다.</div>'; return; }
   $("menus").innerHTML = `<table><thead><tr>
       <th>메뉴명</th><th>안내 문구</th><th>키워드</th><th>출처</th><th>상태</th><th></th>
@@ -291,6 +595,13 @@ function renderMenus(rows) {
 
 // 관리자가 AI 를 기다리지 않고 직접 쓰는 길. CMS 인데 이게 없으면 반쪽이다.
 let editing = null;
+let menuCache = [];
+
+// '보완 필요' 주제에서 바로 그 메뉴를 고치러 간다. 분석 결과와 수정 경로를 잇는다.
+function fixMenu(menuId) {
+  const menu = menuCache.find(m => m.menu_id === menuId);
+  if (menu) openEditor(menu);
+}
 
 function openEditor(menu) {
   editing = menu || null;
@@ -385,14 +696,27 @@ function explainRun(out) {
     `새 추천 ${out.proposals_made}건`,
     ``,
   ];
-  if (st.skipped_covered) lines.push(`· ${st.skipped_covered}개 주제는 기존 메뉴가 이미 답하고 있어 제외`);
-  if (st.skipped_small) lines.push(`· ${st.skipped_small}개 주제는 질문이 ${st.min_cluster_size}건 미만이라 제외`);
-  if (st.blocked_duplicate) lines.push(`· ${st.blocked_duplicate}건은 이미 검토했거나 반영한 주제라 다시 제안하지 않음`);
+  lines.push(`[규칙] 걸러낸 주제`);
+  if (st.skipped_covered) lines.push(`  · ${st.skipped_covered}개 — 기존 메뉴가 이미 답하고 있음`);
+  if (st.skipped_small) lines.push(`  · ${st.skipped_small}개 — 질문이 ${st.min_cluster_size}건 미만 (우연일 수 있음)`);
+
+  lines.push(``, `[LLM] 상위 Agent 가 ${st.triage_candidates ?? 0}개 주제를 판단`);
+  lines.push(`  · ${st.triage_kept ?? 0}개 통과 · ${st.triage_dropped ?? 0}개 제외 (안내 가치 없음)`);
+
+  lines.push(``, `[LLM] 하위 Agent 가 근거 문서를 조사`);
+  lines.push(`  · ${st.evidence_found ?? 0}개 주제는 근거 확보`);
+  if (st.evidence_missing) {
+    lines.push(`  · ${st.evidence_missing}개 주제는 근거 문서가 없어 초안을 만들지 않음`,
+      `    (지어내지 않습니다. [할 일] 탭의 '문서 보강 필요' 를 확인하세요)`);
+  }
+  if (st.blocked_duplicate) {
+    lines.push(``, `· ${st.blocked_duplicate}건은 이미 검토했거나 반영한 주제라 다시 제안하지 않음`);
+  }
   if (!out.proposals_made) {
     lines.push(``, `추천할 새 주제가 없습니다.`,
-      `아래 [메뉴 직접 추가] 로 직접 만들거나, 기존 메뉴의 키워드를 고칠 수 있습니다.`);
+      `[CMS 메뉴] 탭에서 직접 만들거나, 기존 메뉴의 키워드를 고칠 수 있습니다.`);
   } else {
-    lines.push(``, `아래 'AI 추천 콘텐츠' 에서 검토하세요.`);
+    lines.push(``, `[할 일] 탭의 '승인 대기' 에서 검토하세요.`);
   }
   return lines.join("\n");
 }
@@ -407,26 +731,53 @@ async function runAnalysis() {
     });
     showError(out.error ? "일부 응답이 검증을 통과하지 못했습니다: " + out.error : "");
     await loadAll();
-    alert(`분석 완료\n질문 ${out.questions_seen}건 → 주제 ${out.clusters_found}개 → 추천 ${out.proposals_made}건\n(백엔드: ${out.backend})`);
+    alert(explainRun(out));
   } catch (e) { showError(e.message); }
   finally { $("runbtn").disabled = false; $("runbtn").textContent = "분석 실행"; }
 }
 
+// 할 일 숫자는 어느 탭에 있든 맨 위에 떠야 하므로 항상 부른다.
+// 나머지는 지금 보고 있는 탭에 필요한 것만 부른다. 보지도 않는 표를
+// 10초마다 새로 그릴 이유가 없고, 그만큼 DB 도 덜 때린다.
 async function loadAll() {
   if (!cid()) return;
   try {
     showError("");
-    const [summary, proposals, topics, menus] = await Promise.all([
+    const [todo, summary] = await Promise.all([
+      api(`/v1/todo?customer_id=${cid()}`),
       api(`/v1/dashboard/summary?customer_id=${cid()}`),
-      api(`/v1/proposals?customer_id=${cid()}&status=pending_review`),
-      api(`/v1/topics?customer_id=${cid()}`),
-      api(`/v1/menus?customer_id=${cid()}`),
     ]);
-    renderCards(summary);
-    renderProposals(proposals);
-    renderTopics(topics);
-    renderMenus(menus);
-    await loadQuestions();
+    lastCount = summary.questions_7d;
+    renderTodo(todo);
+    await loadTab(summary);
+  } catch (e) { showError("불러오지 못했습니다: " + e.message); }
+}
+
+async function loadTab(summary) {
+  if (!cid()) return;
+  try {
+    if (current === "todo") {
+      const [proposals, topics, dups] = await Promise.all([
+        api(`/v1/proposals?customer_id=${cid()}&status=pending_review`),
+        api(`/v1/topics?customer_id=${cid()}`),
+        api(`/v1/menus/duplicates?customer_id=${cid()}`),
+      ]);
+      renderProposals(proposals);
+      renderGaps(topics);
+      renderDuplicates(dups);
+    } else if (current === "menus") {
+      renderMenus(await api(`/v1/menus?customer_id=${cid()}`));
+    } else if (current === "questions") {
+      renderTopics(await api(`/v1/topics?customer_id=${cid()}&limit=30`));
+      await loadQuestions();
+    } else if (current === "docs") {
+      renderDocuments(await api(`/v1/documents?customer_id=${cid()}`));
+    } else if (current === "runs") {
+      const s = summary || await api(`/v1/dashboard/summary?customer_id=${cid()}`);
+      renderCards(s);
+      renderFlow(s);
+      renderRuns(await api(`/v1/analysis/runs?customer_id=${cid()}&limit=15`));
+    }
   } catch (e) { showError("불러오지 못했습니다: " + e.message); }
 }
 

@@ -14,9 +14,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from agents.analyst import textutil
 from services.common.db import get_session
 from services.common.models import CmsMenu, ContentProposal
-from services.ops_api.schemas import ApproveIn, IgnoreIn, MenuRow, ProposalRow
+from services.ops_api.schemas import (
+    ApproveIn,
+    DuplicateHint,
+    IgnoreIn,
+    MenuRow,
+    ProposalRow,
+)
 
 router = APIRouter(prefix="/v1", tags=["review"])
 DbSession = Annotated[Session, Depends(get_session)]
@@ -56,6 +63,45 @@ def _slugify(title: str, proposal_id: int) -> str:
     return f"{base or 'menu'}-{proposal_id}"
 
 
+# 제목이 이만큼 닮았으면 같은 주제로 본다. '증명서 발급 수수료' 와 '증명서 수수료' 같은 경우.
+DUPLICATE_THRESHOLD = 0.7
+
+
+def _find_duplicate(
+    session: Session, customer_id: int, title: str, menu_id: int | None
+) -> CmsMenu | None:
+    """같은 주제를 이미 다루는 메뉴. 관리자가 지목했으면 그것을 쓴다."""
+    if menu_id is not None:
+        return session.get(CmsMenu, menu_id)
+    menus = session.scalars(
+        select(CmsMenu).where(CmsMenu.customer_id == customer_id, CmsMenu.status == "published")
+    )
+    best, best_score = None, DUPLICATE_THRESHOLD
+    for menu in menus:
+        score = textutil.similarity(title, menu.title)
+        if menu.title == title:
+            score = 1.0
+        if score >= best_score:
+            best, best_score = menu, score
+    return best
+
+
+@router.get("/proposals/{proposal_id}/duplicate", response_model=DuplicateHint | None)
+def check_duplicate(proposal_id: int, session: DbSession) -> DuplicateHint | None:
+    """이 제안과 겹치는 기존 메뉴가 있는지. 화면이 [추가하기] 전에 물어본다."""
+    proposal = _load(session, proposal_id)
+    existing = _find_duplicate(session, proposal.customer_id, proposal.title, None)
+    if existing is None:
+        return None
+    return DuplicateHint(
+        menu_id=existing.menu_id,
+        title=existing.title,
+        body=existing.body,
+        keywords=list(existing.keywords),
+        similarity=round(textutil.similarity(proposal.title, existing.title), 3),
+    )
+
+
 @router.post("/proposals/{proposal_id}/approve", response_model=MenuRow)
 def approve(proposal_id: int, decision: ApproveIn, session: DbSession) -> CmsMenu:
     """[추가하기]. 승인 즉시 cms_menu 에 들어가고 키오스크가 답하기 시작한다.
@@ -68,16 +114,35 @@ def approve(proposal_id: int, decision: ApproveIn, session: DbSession) -> CmsMen
         raise HTTPException(status.HTTP_409_CONFLICT, f"이미 처리된 제안이다: {proposal.status}")
 
     edited = any(value is not None for value in (decision.title, decision.body, decision.keywords))
-    menu = CmsMenu(
-        customer_id=proposal.customer_id,
-        code=_slugify(decision.title or proposal.title, proposal.proposal_id),
-        title=decision.title or proposal.title,
-        body=decision.body or proposal.body,
-        keywords=decision.keywords if decision.keywords is not None else list(proposal.keywords),
-        status="published",
-        origin="ai_proposal",
-    )
-    session.add(menu)
+    title = decision.title or proposal.title
+    body = decision.body or proposal.body
+    keywords = decision.keywords if decision.keywords is not None else list(proposal.keywords)
+
+    existing = _find_duplicate(session, proposal.customer_id, title, decision.duplicate_of)
+    if existing is not None and decision.on_duplicate != "new":
+        # 승인할 때마다 같은 제목의 메뉴가 새로 생겼다. '증명서 발급 수수료' 가 네 개까지 늘었다.
+        # 키오스크는 그중 하나만 답하므로 나머지는 관리 목록만 어지럽힌다.
+        if decision.on_duplicate == "merge":
+            existing.body = existing.body + "\n\n" + body
+            existing.keywords = sorted(set(existing.keywords) | set(keywords))
+        else:
+            existing.body = body
+            existing.keywords = keywords
+            existing.title = title
+        existing.origin = "ai_proposal"
+        existing.updated_at = dt.datetime.now(dt.UTC)
+        menu = existing
+    else:
+        menu = CmsMenu(
+            customer_id=proposal.customer_id,
+            code=_slugify(title, proposal.proposal_id),
+            title=title,
+            body=body,
+            keywords=keywords,
+            status="published",
+            origin="ai_proposal",
+        )
+        session.add(menu)
     session.flush()
 
     proposal.status = "edited" if edited else "approved"
