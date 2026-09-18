@@ -115,5 +115,22 @@ def test_스치듯_걸린_것은_약한_매칭으로_남는다() -> None:
     assert verdict == "low_confidence"
 
 
+def test_활용형이_달라도_어간이_같으면_찾는다() -> None:
+    """'분실했는데' 와 '분실물'. 글자 겹침만 보면 0.07 이라 통째로 놓쳤다.
+
+    한국어는 어간이 앞에 오므로 앞부분이 같으면 같은 말일 가능성이 높다.
+    """
+    menu, _score, verdict = find_answer("지갑 분실했는데 도와줘", MENUS)
+    assert verdict != "fallback", "분실물 안내가 있는데 아무것도 못 찾았다"
+    assert menu is not None and "분실물" in menu.title
+
+
+def test_요청_표현은_주제어로_치지_않는다() -> None:
+    """'도와줘' 가 낱말로 잡히면 평균이 내려가 멀쩡한 매칭까지 떨어뜨린다."""
+    from agents.analyst.textutil import content_tokens
+
+    assert content_tokens("지갑 분실했는데 도와줘") == {"지갑", "분실"}
+
+
 def test_메뉴가_하나도_없으면_안내_불가() -> None:
     assert find_answer("주차장 어디예요?", [])[2] == "fallback"

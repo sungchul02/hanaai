@@ -29,6 +29,14 @@ _TAIL_PATTERNS = (
     "습니까",
     "습니다",
     "인가",
+    # 연결어미. "지갑 분실했는데 도와줘" 가 분실물 안내와 안 맞아서 넣었다.
+    "했는데",
+    "하는데",
+    "했습니다",
+    "했어요",
+    "했어",
+    "해서",
+    "하고",
 )
 _PARTICLES = ("은", "는", "이", "가", "을", "를", "에", "의", "도", "로", "으로", "까지", "부터")
 
@@ -86,6 +94,11 @@ STOPWORD_PREFIXES = (
     "뭐죠",
     "어떻게",
     "어느",
+    # 요청 표현. "지갑 분실했는데 도와줘" 에서 '도와줘' 가 낱말로 잡혀 평균을 끌어내렸다.
+    "도와",
+    "부탁",
+    "해주",
+    "주세",
 )
 
 
@@ -100,7 +113,8 @@ def clean(value: str) -> str:
 
 def _strip_tail(word: str) -> str:
     for tail in _TAIL_PATTERNS:
-        if len(word) > len(tail) + 1 and word.endswith(tail):
+        # 조사와 같은 기준. +1 을 두면 "분실했는데"(5) 에서 "했는데"(4) 를 못 뗀다.
+        if len(word) > len(tail) and word.endswith(tail):
             return word[: -len(tail)]
     for particle in _PARTICLES:
         # '시까지' 처럼 조사를 떼면 한 글자만 남는 경우도 떼야 한다.
@@ -154,6 +168,30 @@ def _bigram_jaccard(left: str, right: str) -> float:
     return len(a & b) / len(a | b)
 
 
+def _common_prefix(left: str, right: str) -> int:
+    length = 0
+    for x, y in zip(left, right, strict=False):
+        if x != y:
+            break
+        length += 1
+    return length
+
+
+def token_score(left: str, right: str) -> float:
+    """낱말 두 개가 같은 말인지. 0~1.
+
+    글자 겹침만 보면 "분실" 과 "분실물" 이 0.5 에 그친다. 한국어는 어간이 앞에 오므로
+    앞부분이 같으면 같은 말일 가능성이 높다. 그 점을 반영한다.
+    """
+    if left == right:
+        return 1.0
+    score = _bigram_jaccard(left, right)
+    prefix = _common_prefix(left, right)
+    if prefix >= 2:
+        score = max(score, prefix / max(len(left), len(right)))
+    return score
+
+
 def similarity(left: str, right: str) -> float:
     """0~1 유사도. 클러스터링이 의존하는 유일한 함수다.
 
@@ -166,7 +204,7 @@ def similarity(left: str, right: str) -> float:
         return _bigram_jaccard(normalize(left), normalize(right))
 
     def coverage(source: set[str], target: set[str]) -> float:
-        return sum(max(_bigram_jaccard(s, t) for t in target) for s in source) / len(source)
+        return sum(max(token_score(s, t) for t in target) for s in source) / len(source)
 
     return (coverage(left_tokens, right_tokens) + coverage(right_tokens, left_tokens)) / 2
 
@@ -177,7 +215,7 @@ def token_similarity(left: set[str], right: set[str]) -> float:
         return 0.0
 
     def coverage(source: set[str], target: set[str]) -> float:
-        return sum(max(_bigram_jaccard(s, t) for t in target) for s in source) / len(source)
+        return sum(max(token_score(s, t) for t in target) for s in source) / len(source)
 
     return (coverage(left, right) + coverage(right, left)) / 2
 

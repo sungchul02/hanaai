@@ -48,6 +48,18 @@ def test_키워드는_자주_나온_내용어를_뽑는다() -> None:
     assert "어디" not in found
 
 
+def test_연결어미를_떼어낸다() -> None:
+    assert tu._strip_tail("분실했는데") == "분실"
+    assert tu._strip_tail("예약해서") == "예약"
+
+
+def test_어간이_같으면_활용형이_달라도_같은_말로_본다() -> None:
+    """'분실' 과 '분실물'. 글자 겹침만 보면 0.5 에 그친다."""
+    assert tu.token_score("분실", "분실물") >= 0.6
+    assert tu.token_score("주차", "주차장") >= 0.6
+    assert tu.token_score("화장실", "주차장") == 0.0
+
+
 def test_욕설_판정() -> None:
     assert tu.is_abusive("바보야")
     assert not tu.is_abusive("주차장 어디예요?")
