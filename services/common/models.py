@@ -15,6 +15,7 @@ from typing import Any
 from sqlalchemy import (
     ARRAY,
     BigInteger,
+    Boolean,
     DateTime,
     ForeignKey,
     Integer,
@@ -52,6 +53,7 @@ AnswerSource = ENUM(
     create_type=False,
 )
 MenuStatus = ENUM("draft", "published", "archived", name="menu_status", create_type=False)
+DocumentKind = ENUM("web", "manual", "upload", name="document_kind", create_type=False)
 ProposalStatus = ENUM(
     "pending_review",
     "approved",
@@ -135,6 +137,66 @@ class CmsMenu(Base):
     updated_at: Mapped[dt.datetime] = mapped_column(TZDateTime, server_default=_NOW)
 
 
+# ------------------------------------------------------------------ 지식 저장소
+
+
+class SourceDocument(Base):
+    """근거 문서. 출처(url)를 반드시 남긴다.
+
+    관리자가 "이 안내가 맞는지" 확인할 수 있어야 하고, 원문이 바뀌었을 때
+    다시 가져올 곳도 필요하다.
+    """
+
+    __tablename__ = "source_document"
+
+    document_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customer.customer_id"))
+    title: Mapped[str] = mapped_column(Text)
+    url: Mapped[str | None] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(DocumentKind, server_default=text("'web'"))
+    note: Mapped[str | None] = mapped_column(Text)
+    fetched_at: Mapped[dt.datetime | None] = mapped_column(TZDateTime)
+    created_at: Mapped[dt.datetime] = mapped_column(TZDateTime, server_default=_NOW)
+    updated_at: Mapped[dt.datetime] = mapped_column(TZDateTime, server_default=_NOW)
+
+    chunks: Mapped[list[DocumentChunk]] = relationship(
+        back_populates="document", cascade="all, delete-orphan"
+    )
+
+
+class DocumentChunk(Base):
+    """검색 단위. 문서를 통째로 LLM 에 넣으면 비용도 정확도도 나빠진다."""
+
+    __tablename__ = "document_chunk"
+
+    chunk_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("source_document.document_id", ondelete="CASCADE")
+    )
+    ordinal: Mapped[int] = mapped_column(Integer)
+    heading: Mapped[str | None] = mapped_column(Text)
+    text_body: Mapped[str] = mapped_column("text", Text)
+    keywords: Mapped[list[str]] = mapped_column(TextArray, server_default=text("'{}'"))
+    created_at: Mapped[dt.datetime] = mapped_column(TZDateTime, server_default=_NOW)
+
+    document: Mapped[SourceDocument] = relationship(back_populates="chunks")
+
+
+class ProposalEvidence(Base):
+    """제안이 어느 근거에서 나왔는지. 관리자가 출처를 눌러 확인한다."""
+
+    __tablename__ = "proposal_evidence"
+
+    proposal_id: Mapped[int] = mapped_column(
+        ForeignKey("content_proposal.proposal_id", ondelete="CASCADE"), primary_key=True
+    )
+    chunk_id: Mapped[int] = mapped_column(
+        ForeignKey("document_chunk.chunk_id", ondelete="CASCADE"), primary_key=True
+    )
+    score: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
+    quote: Mapped[str | None] = mapped_column(Text)
+
+
 # ------------------------------------------------------------------ 질문 로그
 
 
@@ -201,6 +263,13 @@ class QuestionCluster(Base):
     coverage_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
     keywords: Mapped[list[str]] = mapped_column(TextArray, server_default=text("'{}'"))
     created_at: Mapped[dt.datetime] = mapped_column(TZDateTime, server_default=_NOW)
+    # 상위 Agent 의 판단. NULL 은 분류 대상이 아니었다는 뜻이다.
+    triage_keep: Mapped[bool | None] = mapped_column(Boolean)
+    triage_reason: Mapped[str | None] = mapped_column(Text)
+    # 하위 Agent 의 조사 결과
+    evidence_found: Mapped[bool | None] = mapped_column(Boolean)
+    evidence_summary: Mapped[str | None] = mapped_column(Text)
+    evidence_missing: Mapped[list[str]] = mapped_column(TextArray, server_default=text("'{}'"))
 
 
 class QuestionClusterMember(Base):
