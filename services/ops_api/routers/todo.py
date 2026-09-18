@@ -41,19 +41,30 @@ _TODO_SQL = text(
           WHERE customer_id = :customer_id AND status = 'published'
           GROUP BY title HAVING count(*) > 1
       ) dup)                                                                AS duplicate_menus,
-      -- 아직 판단이 끝나지 않은 질문. 다음 분류에 들어갈 것과 같은 기준이어야 한다.
-      -- '묶였는가' 로 세면 표본 부족으로 판단을 못 받은 주제가 0건으로 보여서,
-      -- 관리자가 더 쌓아야 할지 판단할 수 없다. (agents/analyst/runner._load_questions 참조)
+      -- 아직 한 번도 분류에 들어가지 않은 질문. **이것만 '할 일' 이다.**
+      --
+      -- 전에는 '판단이 끝났는가' 로 셌다. 그러면 표본 부족(4건 미만)으로 대기하는
+      -- 주제의 질문이 영원히 '미분석' 으로 떠 있는다. 분류를 아무리 눌러도 안 줄어든다.
+      -- 그건 이미 분류했고 "더 쌓여야 한다" 는 판단까지 받은 질문이다.
+      --
+      -- 분석이 다시 볼 대상과는 기준이 다르다(runner._load_questions).
+      -- 그쪽은 주제를 키우려고 계속 담아두고, 여기는 관리자가 누를 일이 있는지만 센다.
       (SELECT count(*) FROM question_log q
         JOIN kiosk k ON k.kiosk_id = q.kiosk_id
         JOIN site s ON s.site_id = k.site_id
-        LEFT JOIN question_cluster c ON c.cluster_id = q.cluster_id
         WHERE s.customer_id = :customer_id
           AND q.asked_at >= now() - interval '7 days'
-          AND c.covered_menu_id IS NULL
-          AND (c.review_status IS NULL
-               OR c.review_status NOT IN ('approved', 'rejected', 'answered')))
-                                                                            AS unanalyzed,
+          AND q.cluster_id IS NULL
+          -- 규칙이 거른 것(욕설 · 자모만 입력)은 클러스터가 없지만 이미 판단받았다.
+          AND q.verdict = 'pending')                                        AS unanalyzed,
+      -- 묶이긴 했는데 아직 안내를 만들 만큼 쌓이지 않은 주제. 할 일이 아니라 참고용이다.
+      (SELECT count(*) FROM question_cluster c
+        WHERE c.customer_id = :customer_id
+          AND c.analysis_run_id = (
+              SELECT max(analysis_run_id) FROM analysis_run
+              WHERE customer_id = :customer_id AND status IN ('succeeded', 'awaiting_review'))
+          AND c.review_status IS NULL
+          AND c.covered_menu_id IS NULL)                                    AS growing_topics,
       -- 초안 품질 지표. 손보지 않고 그대로 쓴 비율이 높을수록 프롬프트가 잘 맞는 것이다.
       (SELECT count(*) FROM content_proposal
         WHERE customer_id = :customer_id AND status = 'approved')           AS approved_as_is,

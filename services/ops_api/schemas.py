@@ -254,6 +254,8 @@ class TodoSummary(BaseModel):
     needs_document: int
     duplicate_menus: int
     unanalyzed: int
+    # 묶이긴 했는데 아직 안내를 만들 만큼 쌓이지 않은 주제. 할 일이 아니라 참고용이다.
+    growing_topics: int = 0
     # 승인된 제안 중 AI 초안을 그대로 쓴 것과 손본 것.
     # 이 비율이 초안 품질 지표다. 손보는 비율이 높아지면 프롬프트를 고쳐야 한다.
     approved_as_is: int = 0

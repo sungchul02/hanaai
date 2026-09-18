@@ -266,7 +266,8 @@ function renderPipeline(now) {
   const t = state.todo || {};
   const r = state.run;
   const detail = {
-    triage: r ? `${r.questions_seen}건 → ${r.clusters_found}주제` : "아직 안 함",
+    triage: t.unanalyzed ? `안 본 질문 ${t.unanalyzed}건`
+          : r ? `${r.questions_seen}건 → ${r.clusters_found}주제` : "아직 안 함",
     pick: r ? `고름 ${state.pickedTopics || 0} · 남음 ${state.waitingTopics || 0}` : "—",
     generate: r ? `초안 ${r.proposals_made || 0}건` : "—",
     approve: `대기 ${t.pending_review || 0}건`,
@@ -335,12 +336,29 @@ const NOW_CARD = {
     body: "승인하면 그대로 키오스크에 나갑니다. 근거와 검증 결과를 보고 판단하세요.",
     cta: `<button class="primary big" onclick="go('drafts')">초안 검토하기</button>`,
   }),
-  idle: () => ({
-    step: "✓ 처리 완료",
-    title: "지금 할 일이 없습니다",
-    body: "키오스크에 새 질문이 쌓이면 다시 분류할 수 있습니다.",
-    cta: `<button onclick="runTriage()">다시 분류하기</button>`,
-  }),
+  idle: () => {
+    const t = state.todo || {};
+    const need = state.run?.stats?.min_cluster_size || 4;
+    if (t.growing_topics) {
+      // 분류는 다 했다. 다만 아직 안내를 만들 만큼 쌓이지 않은 주제가 있다.
+      // 이걸 '미분석' 으로 부르면 눌러도 안 줄어드는 할 일이 영원히 남는다.
+      return {
+        step: "✓ 처리 완료",
+        title: "지금 만들 수 있는 안내는 다 만들었습니다",
+        body:
+          `주제 ${t.growing_topics}개가 아직 질문 ${need}건을 못 채웠습니다.<br>` +
+          `같은 것을 묻는 사람이 더 쌓여야 안내를 만들 가치가 생깁니다.<br>` +
+          `질문이 더 들어오면 저절로 다시 대상이 됩니다.`,
+        cta: `<button onclick="go('questions')">어떤 질문인지 보기</button>`,
+      };
+    }
+    return {
+      step: "✓ 처리 완료",
+      title: "지금 할 일이 없습니다",
+      body: "키오스크에 새 질문이 쌓이면 다시 분류할 수 있습니다.",
+      cta: `<button onclick="runTriage()">다시 분류하기</button>`,
+    };
+  },
 };
 
 function renderHome() {
@@ -360,6 +378,9 @@ function renderHome() {
       "승인하면 키오스크에 바로 나갑니다", "go('drafts')"],
     ["문서 보강 필요", t.needs_document, "묻는데 근거 문서가 없어 답을 못 만듭니다", "go('gaps')"],
     ["중복 메뉴", t.duplicate_menus, "제목이 같은 메뉴. 키오스크는 하나만 답합니다", "go('dups')"],
+    // 할 일이 아니다. 눌러서 줄일 수 있는 것이 아니라 시간이 해결한다.
+    ["더 쌓여야 하는 주제", now === "idle" ? 0 : (t.growing_topics || 0),
+      "질문이 더 들어오면 저절로 다시 대상이 됩니다", "go('questions')"],
   ].filter(([, n]) => n > 0);
 
   return renderPipeline(now) + `
